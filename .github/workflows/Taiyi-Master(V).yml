@@ -1,4 +1,4 @@
-name: Taiyi
+name: Taiyi-Master(V)
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ env:
   CACHE_TOOLCHAIN: true
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: Taiyi
+  FIRMWARE_TAG: Taiyi-Master
   TZ: Asia/Shanghai
 
 jobs:

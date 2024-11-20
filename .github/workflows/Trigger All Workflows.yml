@@ -3,14 +3,29 @@ name: Trigger All Workflows  # 主要工作流的名称
 on:
   workflow_dispatch:  # 手动触发：通过 GitHub UI 来触发
   schedule:
-     - cron: 0 18 * * *  # 北京时间凌晨2点，定时触发（取消注释并设置时间）
+     - cron: 0 20 * * *  # 北京时间凌晨4点，定时触发
 
 jobs:
-    Arthur-Athena:
-     uses: ./.github/workflows/Arthur&Athena.yml  # 引用工作流文件：Arthur&Athena.yml
+    Arthur-Athena-Master-B:
+     uses: ./.github/workflows/Arthur&Athena-Master(B).yml
 
-    Taiyi:
-     uses: ./.github/workflows/Taiyi.yml  # 引用工作流文件：Taiyi.yml
+    Arthur-Athena-Master-V:
+     uses: ./.github/workflows/Arthur&Athena-Master(V).yml
+
+    Arthur-Athena-Stable:
+     uses: ./.github/workflows/Arthur&Athena-Stable(24.10).yml
+
+    Taiyi-Master-B:
+     uses: ./.github/workflows/Taiyi-Master(B).yml
+
+    Taiyi-Master-V:
+     uses: ./.github/workflows/Taiyi-Master(V).yml
+
+    Taiyi-Stable:
+     uses: ./.github/workflows/Taiyi-Stable(24.10).yml
+
+    All-Base:
+     uses: ./.github/workflows/All-Base.yml
 
     Clean:
-     uses: ./.github/workflows/Clean.yml  # 引用工作流文件：Clean.yml
+     uses: ./.github/workflows/Clean.yml

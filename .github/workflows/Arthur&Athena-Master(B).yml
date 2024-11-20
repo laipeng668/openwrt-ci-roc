@@ -1,4 +1,4 @@
-name: Arthur&Athena
+name: Arthur&Athena-Master(B)
 
 on:
   workflow_dispatch:
@@ -7,8 +7,8 @@ on:
   #   - cron: 0 20 * * *
 
 env:
-  REPO_URL: https://github.com/VIKINGYFY/immortalwrt.git
-  # REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
+  # REPO_URL: https://github.com/VIKINGYFY/immortalwrt.git
+  REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
   REPO_BRANCH: main
   CONFIG_FILE: configs/Arthur&Athena.config
   DIY_SCRIPT: scripts/roc-script.sh
@@ -16,7 +16,7 @@ env:
   CACHE_TOOLCHAIN: true
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: Arthur&Athena
+  FIRMWARE_TAG: Arthur&Athena-Master
   TZ: Asia/Shanghai
 
 jobs:
