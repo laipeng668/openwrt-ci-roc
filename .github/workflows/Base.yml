@@ -1,4 +1,4 @@
-name: Arthur&Athena
+name: Base
 
 on:
   workflow_dispatch:
@@ -7,16 +7,16 @@ on:
   #   - cron: 0 20 * * *
 
 env:
-  REPO_URL: https://github.com/VIKINGYFY/immortalwrt.git
-  # REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
-  REPO_BRANCH: main
-  CONFIG_FILE: configs/Arthur&Athena.config
+  # REPO_URL: https://github.com/VIKINGYFY/immortalwrt.git
+  REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
+  REPO_BRANCH: openwrt-24.10
+  CONFIG_FILE: configs/Base.config
   DIY_SCRIPT: scripts/roc-script.sh
   CLASH_KERNEL: amd64
   CACHE_TOOLCHAIN: true
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: Arthur&Athena
+  FIRMWARE_TAG: Base
   TZ: Asia/Shanghai
 
 jobs:
@@ -171,9 +171,9 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         artifacts: ${{ env.FIRMWARE_PATH }}/*
         body: |
-          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}** (master分支，欢迎下载测试！)
+          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}** (刷机底包！)
           ### 📒 固件信息(带WIFI)
-          - 这是带WIFI以及NSS的6.6内核固件，默认主题为Argon；该固件在ImmortalWrt的基础上，添加了额外的软件包cpufreq、ddns、ttyd、upnp、wol、samba4、vlmcsd、aria2、autoreboot、uhttpd、wifischedule、frps、frpc、diskman、hd-idle、banip、acme、arpbind、usb-printer、homeproxy、alist、adguardhome、filebrowser，并添加了若干工具，具体详见Arthur&Athena.config。
+          - 这是刷机底包，为了防止固件过大刷不进去，以及刷进去了软件包默认有占用，最好先使用刷机底包刷机；再在LuCI界面刷大固件，此时会弹出红色警告对话框，这是正常现象！
           - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
           - ⚽ 固件源码: ${{ env.REPO_URL }}
           - 💝 源码分支: ${{ env.REPO_BRANCH }}

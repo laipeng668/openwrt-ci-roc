@@ -8,7 +8,7 @@ on:
 
 env:
   REPO_URL: https://github.com/VIKINGYFY/immortalwrt.git
-  # REPO_URL: https://github.com/LiBwrt-op/openwrt-6.x.git
+  # REPO_URL: https://github.com/LiBwrt/openwrt-6.x.git
   REPO_BRANCH: main
   CONFIG_FILE: configs/Taiyi.config
   DIY_SCRIPT: scripts/roc-script.sh
