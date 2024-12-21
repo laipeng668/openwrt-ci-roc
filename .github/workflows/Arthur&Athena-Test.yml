@@ -7,8 +7,8 @@ on:
   #   - cron: 0 20 * * *
 
 env:
-  REPO_URL: https://github.com/laipeng668/immortalwrt.git
-  REPO_BRANCH: 24.10-6.12
+  REPO_URL: https://github.com/breeze303/immortalwrt.git
+  REPO_BRANCH: main
   CONFIG_FILE: configs/Arthur&Athena.config
   DIY_SCRIPT: scripts/Roc-script.sh
   CLASH_KERNEL: amd64
