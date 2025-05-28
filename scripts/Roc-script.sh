@@ -3,6 +3,10 @@ sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generat
 sed -i "s/hostname='.*'/hostname='Roc'/g" package/base-files/files/bin/config_generate
 sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ Build by Roc')/g" feeds/luci/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
 
+# 修正使用ccache编译vlmcsd的问题
+mkdir -p feeds/packages/net/vlmcsd/patches
+cp -f $GITHUB_WORKSPACE/patches/fix_vlmcsd_compile_with_ccache.patch feeds/packages/net/vlmcsd/patches
+
 # 移除要替换的包
 rm -rf feeds/packages/net/alist
 rm -rf feeds/luci/applications/luci-app-alist
