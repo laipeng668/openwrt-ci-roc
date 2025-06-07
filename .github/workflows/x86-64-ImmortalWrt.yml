@@ -12,6 +12,7 @@ env:
   CONFIG_FILE: configs/x86-64.config
   DIY_SCRIPT: scripts/Roc-script.sh
   CLASH_KERNEL: amd64
+  MADS: false
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
   FIRMWARE_TAG: x86-64
@@ -37,6 +38,7 @@ jobs:
         echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
 
     - name: Maximize Available Disk Space(最大化可用磁盘空间​)
+      if: env.MADS == 'true'
       uses: AdityaGarg8/remove-unwanted-software@master
       with:
         remove-dotnet: "true"
@@ -65,8 +67,10 @@ jobs:
     - name: Clone Source Code(克隆源代码)
       run: |
         df -hT $GITHUB_WORKSPACE
-        git clone --depth 1 -b $REPO_BRANCH --single-branch $REPO_URL openwrt
-        cd openwrt
+        sudo mkdir -p /mnt/openwrt
+        sudo chown -R $(id -u):$(id -g) /mnt/openwrt
+        git clone --depth 1 -b $REPO_BRANCH --single-branch $REPO_URL /mnt/openwrt
+        cd /mnt/openwrt
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
         VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")
         echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
