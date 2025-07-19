@@ -11,8 +11,8 @@ cp -f $GITHUB_WORKSPACE/patches/fix_vlmcsd_compile_with_ccache.patch feeds/packa
 rm -rf feeds/packages/net/open-app-filter
 rm -rf feeds/luci/applications/luci-app-appfilter
 rm -rf feeds/packages/net/adguardhome
-# rm -rf feeds/packages/net/openlist
-# rm -rf feeds/luci/applications/luci-app-openlist
+rm -rf feeds/packages/net/openlist
+rm -rf feeds/luci/applications/luci-app-openlist
 
 # Git稀疏克隆，只克隆指定目录到本地
 function git_sparse_clone() {
