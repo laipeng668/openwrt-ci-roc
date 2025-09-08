@@ -1,4 +1,4 @@
-name: Arthur&Athena-OpenWrt
+name: Athena-OpenWrt
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
 env:
   REPO_URL: https://github.com/laipeng668/openwrt.git
   REPO_BRANCH: master
-  CONFIG_FILE: configs/Arthur&Athena.config
+  CONFIG_FILE: configs/Athena.config
   GENERAL_CONFIG_FILE: configs/General.config
   DIY_SCRIPT: scripts/Roc-script.sh
   CLASH_KERNEL: amd64
@@ -142,11 +142,11 @@ jobs:
       if: steps.compile.outputs.status == 'success'
       run: |
         cd $OPENWRT_PATH/bin/targets/*/*
-        cp $OPENWRT_PATH/.config Arthur.Athena.config
-        mv config.buildinfo Arthur.Athena.config.buildinfo
-        mv openwrt-qualcommax-ipq60xx.manifest openwrt-qualcommax-ipq60xx-Arthur.Athena.manifest
+        cp $OPENWRT_PATH/.config Athena.config
+        mv config.buildinfo Athena.config.buildinfo
+        mv openwrt-qualcommax-ipq60xx.manifest openwrt-qualcommax-ipq60xx-Athena.manifest
         mv -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages
-        tar -zcf Arthur.Athena.Packages.tar.gz packages
+        tar -zcf Athena.Packages.tar.gz packages
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
