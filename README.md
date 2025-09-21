@@ -1,5 +1,5 @@
 <div align="center">
-<h1>OpenWrt — 云编译</h1>
+<h1>LibWrt — 云编译</h1>
 
 ## 特别提示
 
