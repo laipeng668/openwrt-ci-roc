@@ -7,26 +7,8 @@ on:
 
 jobs:
 
-    IPQ60XX-LibWrt:
-      uses: ./.github/workflows/IPQ60XX-LibWrt.yml
-
-    IPQ807X-LibWrt:
-      uses: ./.github/workflows/IPQ807X-LibWrt.yml
-
-    Arthur-Athena-Taiyi-ImmortalWrt:
-      uses: ./.github/workflows/Arthur&Athena&Taiyi-ImmortalWrt.yml
-
-    Athena-OpenWrt:
-      uses: ./.github/workflows/Athena-OpenWrt.yml
-
     x86-64-ImmortalWrt:
       uses: ./.github/workflows/x86-64-ImmortalWrt.yml
-
-    RAX3000M-ImmortalWrt:
-      uses: ./.github/workflows/RAX3000M-ImmortalWrt.yml
-
-    K2P-ImmortalWrt:
-      uses: ./.github/workflows/K2P-ImmortalWrt.yml
-
+      
     All-Clean:
       uses: ./.github/workflows/All-Clean.yml
