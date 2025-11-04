@@ -1,6 +1,6 @@
 # 修改默认IP & 固件名称 & 编译署名
-sed -i 's/192.168.2.1/192.168.2.1/g' package/base-files/files/bin/config_generate
-sed -i "s/hostname='.*'/hostname='wjt12300'/g" package/base-files/files/bin/config_generate
+sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
+sed -i "s/hostname='.*'/hostname='LibWrt'/g" package/base-files/files/bin/config_generate
 sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ Built by Roc')/g" feeds/luci/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
 
 # 调整在Argon主题下，概览页面显示/隐藏按钮的样式
