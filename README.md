@@ -25,4 +25,4 @@
 - 插件对应名称及功能请参考恩山网友帖子：[OpenWrt软件包全量解释](https://www.right.com.cn/FORUM/forum.php?mod=viewthread&tid=8384897)。
 - 如需修改默认 IP、添加或删除插件包以及一些其他设置请在 `Roc-script.sh` 文件内修改。
 - 添加或修改 `xx.yml` 文件，最后点击 `Actions` 运行要编译的 `workflow` 即可开始编译。
-- 编译大概需要 1-2 小时，编译完成后在仓库主页 [Releases] 对应 Tag 标签内下载固件。
+- 编译大概需要 1-2 小时，编译完成后在仓库主页 [Releases](https://github.com/wjt12300/openwrt-ci-roc/releases) 对应 Tag 标签内下载固件。
