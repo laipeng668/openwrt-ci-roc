@@ -19,7 +19,7 @@ env:
 
 jobs:
   Build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Check Server Performance(检查服务器性能)
@@ -41,10 +41,8 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo -E apt-get -y update
-        sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
         sudo -E systemctl daemon-reload
-        sudo -E apt-get -y autoremove --purge
-        sudo -E apt-get -y clean
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
@@ -102,19 +100,16 @@ jobs:
   
     - name: Load Custom Configuration(加载自定义配置)
       run: |
-        cp -f $CONFIG_FILE $OPENWRT_PATH/.config
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
-        # 运行自定义脚本
         $GITHUB_WORKSPACE/$DIY_SCRIPT
 
     - name: Download DL Package(下载DL软件包)
       run: |
+        cp -f $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig
         make download -j$(nproc)
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile Firmware(开始编译固件)
       id: compile

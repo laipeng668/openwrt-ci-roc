@@ -1,4 +1,4 @@
-name: Taiyi-ImmortalWrt
+name: Arthur&Athena&Taiyi-ImmortalWrt
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
 env:
   REPO_URL: https://github.com/laipeng668/immortalwrt.git
   REPO_BRANCH: master
-  CONFIG_FILE: configs/Taiyi.config
+  CONFIG_FILE: configs/Arthur&Athena&Taiyi.config
   GENERAL_CONFIG_FILE: configs/General.config
   DIY_SCRIPT: scripts/Roc-script.sh
   CLASH_KERNEL: amd64
@@ -20,12 +20,9 @@ env:
 
 jobs:
   Build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
-    - name: Delay Startup by 3 Minutes(延迟启动3分钟)
-      run: sleep 180s
-
     - name: Check Server Performance(检查服务器性能)
       run: |
         echo "警告⚠"
@@ -45,10 +42,8 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo -E apt-get -y update
-        sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+        sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
         sudo -E systemctl daemon-reload
-        sudo -E apt-get -y autoremove --purge
-        sudo -E apt-get -y clean
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
@@ -106,21 +101,16 @@ jobs:
   
     - name: Load Custom Configuration(加载自定义配置)
       run: |
-        cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
-        # 修改配置文件
-        sed -i '/CONFIG_PACKAGE_luci-app-wifischedule=y/d' .config
-        # 运行自定义脚本
         $GITHUB_WORKSPACE/$DIY_SCRIPT
 
     - name: Download DL Package(下载DL软件包)
       run: |
+        cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig
         make download -j$(nproc)
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile Firmware(开始编译固件)
       id: compile
@@ -147,11 +137,11 @@ jobs:
       if: steps.compile.outputs.status == 'success'
       run: |
         cd $OPENWRT_PATH/bin/targets/*/*
-        cp $OPENWRT_PATH/.config Taiyi.config
-        mv config.buildinfo Taiyi.config.buildinfo
-        mv immortalwrt-qualcommax-ipq60xx-jdcloud_re-cs-07.manifest immortalwrt-qualcommax-ipq60xx-Taiyi.manifest
+        cp $OPENWRT_PATH/.config Arthur.Athena.Taiyi.config
+        mv config.buildinfo Arthur.Athena.Taiyi.config.buildinfo
+        mv immortalwrt-qualcommax-ipq60xx.manifest immortalwrt-qualcommax-ipq60xx-Arthur.Athena.Taiyi.manifest
         mv -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages
-        tar -zcf Taiyi.Packages.tar.gz packages
+        tar -zcf Arthur.Athena.Taiyi.Packages.tar.gz packages
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
@@ -174,7 +164,7 @@ jobs:
         body: |
           **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
           ### 📒 固件信息
-          - 这是开启全功能NSS的6.12内核固件，默认主题为Argon；该固件在ImmortalWrt的基础上，添加了额外的软件包cpufreq、ddns、ttyd、upnp、wolplus、samba4、vlmcsd、aria2、autoreboot、uhttpd、wifischedule、frps、frpc、diskman、hd-idle、banip、acme、arpbind、usb-printer、homeproxy、openlist、adguardhome、oaf、sqm、wireguard、watchcat、3cat（**Taiyi**额外增加了filebrowser、dockerman、gecoosac、lucky），并添加了若干工具，具体详见对应机型的config。
+          - 这是开启全功能NSS的6.12内核固件，默认主题为Argon；该固件在ImmortalWrt的基础上，添加了额外的软件包cpufreq、ddns、ttyd、upnp、wolplus、samba4、vlmcsd、aria2、autoreboot、uhttpd、wifischedule、frps、frpc、diskman、hd-idle、banip、acme、arpbind、usb-printer、homeproxy、openlist、adguardhome、oaf、sqm、wireguard、watchcat、wechatpush、3cat（**Taiyi**额外增加了filebrowser、dockerman、gecoosac、lucky），并添加了若干工具，具体详见对应机型的config。
           - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
           - ⚽ 固件源码: ${{ env.REPO_URL }}
           - 💝 源码分支: ${{ env.REPO_BRANCH }}
