@@ -7,8 +7,8 @@ on:
   #   - cron: 0 20 * * *
 
 env:
-  REPO_URL: https://github.com/laipeng668/immortalwrt.git
-  REPO_BRANCH: openwrt-23.05
+  REPO_URL: https://github.com/immortalwrt/immortalwrt.git
+  REPO_BRANCH: openwrt-25.12
   CONFIG_FILE: configs/K2P.config
   DIY_SCRIPT: scripts/Roc-script.sh
   CLASH_KERNEL: amd64
@@ -58,7 +58,7 @@ jobs:
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
         VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")
         echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
-        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' include/kernel-5.15)
+        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12)
         echo "VERSION_KERNEL=$VERSION_KERNEL" >> $GITHUB_ENV
 
     - name: Generate Variables(生成变量)
@@ -109,8 +109,8 @@ jobs:
         cp -f $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         # 修改配置文件
-        sed -i "/uci.set('dhcp', section_id, 'leasetime', '12h');/a\    uci.set('dhcp', section_id, 'dhcpv4', 'server');" \
-               feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/interfaces.js
+        # sed -i "/uci.set('dhcp', section_id, 'leasetime', '12h');/a\    uci.set('dhcp', section_id, 'dhcpv4', 'server');" \
+        #        feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/interfaces.js
         make defconfig
         make download -j$(nproc)
 
@@ -141,7 +141,7 @@ jobs:
         cd $OPENWRT_PATH/bin/targets/*/*
         cp $OPENWRT_PATH/.config K2P.config
         mv config.buildinfo K2P.config.buildinfo
-        mv -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages
+        mv -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages
         tar -zcf K2P.Packages.tar.gz packages
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
@@ -165,7 +165,7 @@ jobs:
         body: |
           **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
           ### 📒 固件信息
-          - 这是CMCC RAX3000M NAND version (custom U-Boot layout)&K2P的5.15内核固件，默认主题为Aurora；该固件在ImmortalWrt的基础上，添加了额外的软件包ddns、ttyd、upnp、wolplus、samba4、vlmcsd、aria2、autoreboot、uhttpd、wifischedule、frps、frpc、diskman、hd-idle、banip、acme、arpbind、usb-printer、passwall、fileassistant、oaf、sqm、wireguard、watchcat、wechatpush、3cat、smartdns（**K2P**仅包含ttyd、autoreboot、uhttpd、wifischedule），并添加了若干工具，具体详见对应机型的config（RAX3000M包含General.config）。
+          - 这是CMCC RAX3000M NAND version (custom U-Boot layout)&K2P的6.12内核固件，默认主题为Aurora；该固件在ImmortalWrt的基础上，添加了额外的软件包ddns、ttyd、upnp、wolplus、samba4、vlmcsd、aria2、autoreboot、uhttpd、wifischedule、frps、frpc、diskman、hd-idle、banip、acme、arpbind、usb-printer、passwall、fileassistant、oaf、sqm、wireguard、watchcat、wechatpush、3cat、smartdns（**K2P**仅包含ttyd、autoreboot、uhttpd、wifischedule），并添加了若干工具，具体详见对应机型的config（RAX3000M包含General.config）。
           - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
           - ⚽ 固件源码: ${{ env.REPO_URL }}
           - 💝 源码分支: ${{ env.REPO_BRANCH }}
