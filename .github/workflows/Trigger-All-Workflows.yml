@@ -13,8 +13,11 @@ jobs:
     IPQ807X-LibWrt:
       uses: ./.github/workflows/IPQ807X-LibWrt.yml
 
-    Arthur-Athena-Taiyi-ImmortalWrt:
-      uses: ./.github/workflows/Arthur&Athena&Taiyi-ImmortalWrt.yml
+    JDCloud-ImmortalWrt:
+      uses: ./.github/workflows/JDCloud-ImmortalWrt.yml
+
+    JDCloud-NoWiFi-ImmortalWrt:
+      uses: ./.github/workflows/JDCloud-NoWiFi-ImmortalWrt.yml
 
     x86-64-ImmortalWrt:
       uses: ./.github/workflows/x86-64-ImmortalWrt.yml
