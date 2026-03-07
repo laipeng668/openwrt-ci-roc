@@ -98,19 +98,24 @@ jobs:
         cd $OPENWRT_PATH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-  
+
+    - name: Download DL Package(下载DL软件包)
+      run: |
+        cat $GENERAL_CONFIG_FILE $CONFIG_FILE > $OPENWRT_PATH/.config
+        cd $OPENWRT_PATH
+        make defconfig
+        echo "===== CONFIG CHECK (NOWIFI) ====="
+        grep -E "CONFIG_TARGET_qualcommax|CONFIG_TARGET_qualcommax_ipq60xx|CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_qihoo_360v6" .config || true
+        grep -E "CONFIG_(DEFAULT_)?PACKAGE_(wpad|hostapd-common|wifi-scripts|wireless-regdb|wpa-supplicant|ipq-wifi-qihoo)" .config || true
+        grep -E "CONFIG_PACKAGE_(mihomo|mihomo-client)|CONFIG_PACKAGE_luci-app-mihomo" .config || true
+        echo "================================="
+        make download -j$(nproc)
+        
     - name: Load Custom Configuration(加载自定义配置)
       run: |
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
         $GITHUB_WORKSPACE/$DIY_SCRIPT
-
-    - name: Download DL Package(下载DL软件包)
-      run: |
-        cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
-        cd $OPENWRT_PATH
-        make defconfig
-        make download -j$(nproc)
 
     - name: Compile Firmware(开始编译固件)
       id: compile
