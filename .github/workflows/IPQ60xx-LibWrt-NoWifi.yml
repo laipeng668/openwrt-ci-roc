@@ -9,7 +9,7 @@ on:
 env:
   REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
   REPO_BRANCH: main-nss
-  CONFIG_FILE: configs/IPQ60XX.nowifi.config
+  CONFIG_FILE: configs/IPQ60XX_nowifi.config
   GENERAL_CONFIG_FILE: configs/General.config
   DIY_SCRIPT: scripts/Roc-script.sh
   CLASH_KERNEL: amd64
