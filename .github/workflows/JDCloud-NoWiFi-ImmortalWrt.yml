@@ -109,6 +109,8 @@ jobs:
       run: |
         cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
+        # 修改配置文件(1.5GHz频率电压从0.9375V提高到0.96V)
+        sed -i 's/opp-microvolt = <937500>;/opp-microvolt = <960000>;/' target/linux/qualcommax/patches-6.12/0038-v6.16-arm64-dts-qcom-ipq6018-add-1.5GHz-CPU-Frequency.patch
         make defconfig
         make download -j$(nproc)
 
