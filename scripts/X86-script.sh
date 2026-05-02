@@ -11,7 +11,7 @@ sed -i "s#_('Firmware Version'), (L\.isObject(boardinfo\.release) ? boardinfo\.r
                 href: 'https://github.com/laipeng668/openwrt-ci-roc/releases',\n \
                 target: '_blank',\n \
                 rel: 'noopener noreferrer'\n \
-                }, [ 'Built by Roc $(date "+%Y-%m-%d %H:%M:%S")' ])\n \
+                }, [ 'Built by Martin $(date "+%Y-%m-%d %H:%M:%S")' ])\n \
             ]),#" feeds/luci/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
 
 # 调整NSS驱动q6_region内存区域预留大小（ipq6018.dtsi默认预留85MB，ipq6018-512m.dtsi默认预留55MB，带WiFi必须至少预留54MB，以下分别是改成预留16MB、32MB、64MB和96MB）
