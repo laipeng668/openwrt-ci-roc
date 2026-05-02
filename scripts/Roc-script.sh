@@ -8,7 +8,7 @@ sed -i "s#_('Firmware Version'), (L\.isObject(boardinfo\.release) ? boardinfo\.r
                 ? boardinfo.release.description + ' / '\n \
                 : '') + (luciversion || '') + ' / ',\n \
             E('a', {\n \
-                href: 'https://github.com/laipeng668/openwrt-ci-roc/releases',\n \
+                href: 'https://github.com/raver520/openwrt-ci-roc/releases',\n \
                 target: '_blank',\n \
                 rel: 'noopener noreferrer'\n \
                 }, [ 'Built by Martin $(date "+%Y-%m-%d %H:%M:%S")' ])\n \
