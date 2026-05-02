@@ -11,7 +11,7 @@ env:
   REPO_BRANCH: master
   CONFIG_FILE: configs/x86-64.config
   GENERAL_CONFIG_FILE: configs/General.config
-  DIY_SCRIPT: scripts/Roc-script.sh
+  DIY_SCRIPT: scripts/X86-script.sh
   CLASH_KERNEL: amd64
   FIRMWARE_TAG: x86-64
   TZ: Asia/Shanghai
