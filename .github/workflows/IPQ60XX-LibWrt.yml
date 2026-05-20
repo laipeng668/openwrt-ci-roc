@@ -7,7 +7,7 @@ on:
   #   - cron: 0 20 * * *
 
 env:
-  REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
+  REPO_URL: https://github.com/wedogit/openwrt-6.x.git
   REPO_BRANCH: main-nss
   CONFIG_FILE: configs/IPQ60XX.config
   GENERAL_CONFIG_FILE: configs/General.config
