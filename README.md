@@ -25,5 +25,5 @@
 - 添加或修改 `xx.yml` 文件，最后点击 `Actions` 运行要编译的 `workflow` 即可开始编译。
 - 编译大概需要 1-2 小时，编译完成后在仓库主页 [Releases](https://github.com/laipeng668/openwrt-ci-roc/releases) 对应 Tag 标签内下载固件。
 
-![Overview](Overview.png)
-![Global](Global.png)
+![Homepage](Homepage.png)
+</div>
