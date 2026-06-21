@@ -1,0 +1,175 @@
+name: Build-Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      x86_sdk_url:
+        description: 可选：x86/64 OpenWrt SDK 地址。留空则自动从 OpenWrt 主线 snapshots 查找。
+        required: false
+        default: ''
+        type: string
+      aarch64_sdk_url:
+        description: 可选：aarch64 OpenWrt SDK 地址。留空则自动从 OpenWrt 主线 snapshots 查找。
+        required: false
+        default: ''
+        type: string
+      package:
+        description: 选择要编译的软件包。all 表示全部。
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - aria2
+          - ariang
+          - frp
+          - nginx
+          - gecoosac
+          - luci-app-aria2
+          - luci-app-frpc
+          - luci-app-frps
+          - luci-app-gecoosac
+  workflow_call:
+    inputs:
+      x86_sdk_url:
+        required: false
+        default: ''
+        type: string
+      aarch64_sdk_url:
+        required: false
+        default: ''
+        type: string
+      package:
+        required: false
+        default: all
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TZ: Asia/Shanghai
+  OUTPUT_DIR: ${{ github.workspace }}/artifacts/packages
+
+jobs:
+  Build:
+    name: Build (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86-64
+            openwrt_target: x86
+            openwrt_subtarget: '64'
+            config_files: configs/x86-64.config configs/Packages.config
+            sdk_url: ${{ inputs.x86_sdk_url }}
+          - name: aarch64
+            openwrt_target: qualcommax
+            openwrt_subtarget: ipq60xx
+            config_files: configs/JDCloud.config configs/Packages.config
+            sdk_url: ${{ inputs.aarch64_sdk_url }}
+    concurrency:
+      group: packages-${{ matrix.name }}-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+    - name: Check Server Performance(检查服务器性能)
+      run: |
+        echo "--------------------------CPU信息--------------------------"
+        echo "CPU物理数量：$(grep "physical id" /proc/cpuinfo | sort | uniq | wc -l)"
+        echo -e "CPU核心信息：$(grep name /proc/cpuinfo | cut -f2 -d: | uniq -c) \n"
+        echo "--------------------------内存信息--------------------------"
+        free -h
+        echo "--------------------------硬盘信息--------------------------"
+        df -hT
+
+    - name: Initialization Environment(初始化环境)
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E apt-get -y update
+        sudo -E apt-get -y install \
+          build-essential \
+          clang \
+          curl \
+          file \
+          flex \
+          bison \
+          g++ \
+          gawk \
+          gcc-multilib \
+          gettext \
+          git \
+          libelf-dev \
+          libncurses-dev \
+          libssl-dev \
+          python3 \
+          python3-setuptools \
+          rsync \
+          tar \
+          unzip \
+          wget \
+          xz-utils \
+          zlib1g-dev \
+          zstd
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: Checkout(检出代码)
+      uses: actions/checkout@v4
+
+    - name: Build Packages With OpenWrt SDK(使用OpenWrt SDK编译软件包)
+      env:
+        OPENWRT_TARGET: ${{ matrix.openwrt_target }}
+        OPENWRT_SUBTARGET: ${{ matrix.openwrt_subtarget }}
+        PACKAGE_CONFIG_FILES: ${{ matrix.config_files }}
+        PACKAGE_ARCH_NAME: ${{ matrix.name }}
+        PACKAGE_SELECTION: ${{ inputs.package }}
+        SDK_URL: ${{ matrix.sdk_url }}
+      run: |
+        chmod +x scripts/OpenWrt-sdk-packages.sh
+        scripts/OpenWrt-sdk-packages.sh
+
+    - name: Upload Packages Artifact(上传软件包产物)
+      uses: actions/upload-artifact@v4
+      with:
+        name: Packages-${{ matrix.name }}
+        path: artifacts/packages/*
+        if-no-files-found: error
+
+  Release:
+    runs-on: ubuntu-24.04
+    needs: Build
+    if: ${{ !cancelled() && needs.Build.result == 'success' }}
+
+    steps:
+    - name: Download Packages Artifacts(下载软件包产物)
+      uses: actions/download-artifact@v4
+      with:
+        pattern: Packages-*
+        path: artifacts/release
+        merge-multiple: true
+
+    - name: Upload Packages To Release(发布软件包)
+      uses: ncipollo/release-action@v1
+      with:
+        name: Packages
+        allowUpdates: true
+        replacesArtifacts: true
+        artifactErrorsFailBuild: true
+        tag: Packages
+        token: ${{ github.token }}
+        artifacts: artifacts/release/*
+        body: |
+          **This is OpenWrt packages built by OpenWrt main SDK**
+          - x86-64: x86/64, configs/x86-64.config + configs/Packages.config
+          - aarch64: qualcommax/ipq60xx, configs/JDCloud.config + configs/Packages.config
+          - 选择的软件包: ${{ inputs.package }}
+          - release assets: original .apk/.ipk files with architecture prefix
+          - packages: aria2, ariang, frp-binary-toml, nginx
+          - luci: frp-toml, luci-app-gecoosac
