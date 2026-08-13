@@ -117,6 +117,7 @@ git clone --depth=1 https://github.com/vernesong/OpenClash package/luci-app-open
 # echo "baidu.com"  > package/luci-app-passwall/luci-app-passwall/root/usr/share/passwall/rules/chnlist
 
 
+
 # === 自定义修改开始 ===
 # 清理废弃Aurora残留目录
 rm -rf feeds/luci/themes/luci-theme-argon feeds/luci/applications/luci-app-argon-config
