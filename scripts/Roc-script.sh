@@ -92,8 +92,6 @@ git_sparse_clone master https://github.com/immortalwrt/luci applications/luci-ap
 mv -f package/luci-app-wol feeds/luci/applications/luci-app-wol
 git clone --depth=1 https://github.com/jerrykuku/luci-theme-argon feeds/luci/themes/luci-theme-argon
 git clone --depth=1 https://github.com/jerrykuku/luci-app-argon-config feeds/luci/applications/luci-app-argon-config
-git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora feeds/luci/themes/luci-theme-aurora
-git clone --depth=1 https://github.com/eamonxg/luci-app-aurora-config feeds/luci/applications/luci-app-aurora-config
 git clone --depth=1 https://github.com/laipeng668/luci-app-openlist2 package/openlist2
 git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/luci-app-lucky
 git clone --depth=1 https://github.com/tty228/luci-app-wechatpush package/luci-app-wechatpush
@@ -117,6 +115,19 @@ git clone --depth=1 https://github.com/vernesong/OpenClash package/luci-app-open
 
 # 清理 PassWall 的 chnlist 规则文件
 # echo "baidu.com"  > package/luci-app-passwall/luci-app-passwall/root/usr/share/passwall/rules/chnlist
+
+# === 自定义修改开始 ===
+# 移除 aurora 主题相关文件（确保不打包进固件）
+rm -rf feeds/luci/themes/luci-theme-aurora
+rm -rf feeds/luci/applications/luci-app-aurora-config
+
+# ServerChan（Server酱推送通知）
+# 原始仓库 tty228/luci-app-serverchan 已合并到 luci-app-wechatpush，此处使用 afala2020 的维护分支
+git clone --depth=1 https://github.com/afala2020/luci-app-serverchan package/luci-app-serverchan
+
+# iStore 应用商店（包名 luci-app-store，依赖 luci-lib-taskd，均在 linkease/istore 仓库内）
+git clone --depth=1 https://github.com/linkease/istore package/istore
+# === 自定义修改结束 ===
 
 ./scripts/feeds update -i -a
 ./scripts/feeds install -a
