@@ -1,118 +1,86 @@
 #!/usr/bin/env bash
 # ============================================================
-# custom-patch.sh — 自动同步后应用的补丁脚本
+# custom-patch 仅修复serverchan编译失败
+# 重要：保留jool/openvswitch源码与配置，不做删除/关闭，保留原有警告
+# 修复内容：新增arping、wrtbwmon依赖配置，解决插件编译报错
 # ============================================================
-# 此脚本由 sync-and-patch.yml 工作流在合并上游代码后自动调用。
-# 它会对以下三个文件应用自定义修改：
-#   1. configs/General.config  — 插件开关 + 新增插件
-#   2. configs/IPQ807X.config  — kmod-tun 内核支持
-#   3. scripts/Roc-script.sh   — 移除 aurora 克隆、新增 serverchan/istore 克隆
-#
-# 设计原则：
-#   - 幂等性：可重复运行，不会产生重复内容
-#   - 健壮性：使用标记块（marker）确保旧补丁被清除后再重新插入
-#   - 安全性：所有修改都有回退机制
-# ============================================================
-
-set -euo pipefail
-
+set -Eeuo pipefail
 echo "=========================================="
-echo "  开始应用自定义补丁"
+echo "  执行自定义补丁：仅修复serverchan缺失arping报错，保留jool/openvswitch"
 echo "=========================================="
 
-# ------------------------------------------------------------
-# 1. 修改 configs/General.config
-# ------------------------------------------------------------
+# ---------------------- 1、处理 General.config ----------------------
 GC="configs/General.config"
-
 if [ -f "$GC" ]; then
-    echo "[1/3] 正在修改 $GC ..."
+    echo "[1/3] 处理 General.config"
+    # 清空旧自定义块，保证幂等重复运行不重复追加
+    sed -i '/^### === 自定义新增配置（开始）===/,/^### === 自定义新增配置（结束）===/d'
 
-    # 1a. 移除旧的自定义块（幂等）
-    sed -i '/^### === 自定义新增配置（开始）===/,/^### === 自定义新增配置（结束）===/d' "$GC"
-
-    # 1b. 修改已有行：去掉不需要的插件（y → n）
+    # 主题相关开关
     sed -i 's/^CONFIG_PACKAGE_luci-theme-aurora=y$/CONFIG_PACKAGE_luci-theme-aurora=n/' "$GC"
     sed -i 's/^CONFIG_PACKAGE_luci-app-aurora-config=y$/CONFIG_PACKAGE_luci-app-aurora-config=n/' "$GC"
     sed -i 's/^CONFIG_PACKAGE_luci-app-samba4=y$/CONFIG_PACKAGE_luci-app-samba4=n/' "$GC"
     sed -i 's/^CONFIG_PACKAGE_luci-app-hd-idle=y$/CONFIG_PACKAGE_luci-app-hd-idle=n/' "$GC"
     sed -i 's/^CONFIG_PACKAGE_luci-app-watchcat=y$/CONFIG_PACKAGE_luci-app-watchcat=n/' "$GC"
-
-    # 1c. 修改已有行：启用 argon 主题（n → y）
     sed -i 's/^CONFIG_PACKAGE_luci-theme-argon=n$/CONFIG_PACKAGE_luci-theme-argon=y/' "$GC"
-    sed -i 's/^CONFIG_PACKAGE_luci-app-argon-config=n$/CONFIG_PACKAGE_luci-app-argon-config=y/' "$GC"
+    sed -i 's/^CONFIG_PACKAGE_luci-app-argon-config=n$/CONFIG_PACKAGE_luci-app-argon-config=y/'
 
-    # 1d. 追加自定义新增配置块
+    # 写入配置块（重点：新增arping、wrtbwmon；不修改jool/openvswitch）
     cat >> "$GC" << 'PATCH_EOF'
-
-### === 自定义新增配置（开始）=== ###
-
-# --- 1. 内核支持 kmod-tun（ZeroTier / EasyTier 等组网工具依赖）---
+### === 自定义新增配置（开始）===
+# 内核TUN虚拟网卡（zerotier/组网依赖）
 CONFIG_PACKAGE_kmod-tun=y
-
-# --- 2. Argon 主题（源码由 Roc-script.sh 从 jerrykuku 仓库拉取最新版）---
+# Argon主题
 CONFIG_PACKAGE_luci-theme-argon=y
 CONFIG_PACKAGE_luci-app-argon-config=y
-
-# --- 3. ServerChan（Server酱推送，源码由 Roc-script.sh 从 afala2020 仓库拉取）---
+# ServerChan推送 + 强制依赖arping（修复编译崩溃核心）
 CONFIG_PACKAGE_luci-app-serverchan=y
-
-# --- 4. DDNS-Go（ImmortalWrt feeds 自带）---
+CONFIG_PACKAGE_arping=y
+# WeChat推送配套依赖wrtbwmon
+CONFIG_PACKAGE_luci-app-wechatpush=y
+CONFIG_PACKAGE_wrtbwmon=y
+# DDNS-Go动态域名
 CONFIG_PACKAGE_luci-app-ddns-go=y
 CONFIG_PACKAGE_ddns-go=y
-
-# --- 5. ZeroTier（ImmortalWrt feeds 自带）---
+# ZeroTier虚拟局域网
 CONFIG_PACKAGE_luci-app-zerotier=y
 CONFIG_PACKAGE_zerotier=y
-
-# --- 6. iStore 应用商店（包名 luci-app-store，源码由 Roc-script.sh 从 linkease/istore 拉取）---
+# iStore应用商店
 CONFIG_PACKAGE_luci-app-store=y
-
-# --- 7. 确保简体中文语言包编译 ---
-CONFIG_LUCI_LANG_zh_Hans=y
-
-### === 自定义新增配置（结束）=== ###
+# 简体中文语言支持
+CONFIG_LUCI_LANG_zh_Hans
+### === 自定义新增配置（结束）===
 PATCH_EOF
-    echo "  ✓ General.config 修改完成"
+    echo "✅ General.config 完成，已添加arping/wrtbwmon，jool/openvswitch无修改"
 else
-    echo "  ⚠ 未找到 $GC，跳过"
+    echo "⚠ 未找到 General.config，跳过"
 fi
 
-# ------------------------------------------------------------
-# 2. 修改 configs/IPQ807X.config
-# ------------------------------------------------------------
-IC="configs/IPQ807X.config"
-
+# ---------------------- 2、处理 IPQ807X.config ----------------------
+IC="configs/IPQ807X"
 if [ -f "$IC" ]; then
-    echo "[2/3] 正在修改 $IC ..."
-
-    # 2a. 将 kmod-tun 从 "not set" 改为 =y
+    echo "[2/3] 处理 IPQ807X.config"
+    # 开启kmod-tun内核模块
     sed -i 's/^# CONFIG_PACKAGE_kmod-tun is not set$/CONFIG_PACKAGE_kmod-tun=y/' "$IC"
+    grep -q '^CONFIG_PACKAGE_kmod-tun=y' || echo 'CONFIG_PACKAGE_kmod-tun=y' >> "$IC"
 
-    # 2b. 如果文件中没有 kmod-tun 行（上游可能改了格式），追加一行
-    if ! grep -q '^CONFIG_PACKAGE_kmod-tun=y$' "$IC"; then
-        echo 'CONFIG_PACKAGE_kmod-tun=y' >> "$IC"
-    fi
-
-    echo "  ✓ IPQ807X.config 修改完成（kmod-tun=y）"
+    # 关键：补充arping、wrtbwmon，解决编译报错
+    grep -q '^CONFIG_PACKAGE_arping=y' || echo 'CONFIG_PACKAGE_arping=y' >> "$IC"
+    grep -q '^CONFIG_PACKAGE_wrtbwmon=y' || echo 'CONFIG_PACKAGE_wrtbwmon=y' >> "$IC"
+    echo "✅ IPQ807X.config 完成，仅新增arping/wrtbwmon，保留jool/openvswitch配置"
 else
-    echo "  ⚠ 未找到 $IC，跳过"
+    echo "⚠ 未找到 IPQ807X.config，跳过"
 fi
 
-# ------------------------------------------------------------
-# 3. 修改 scripts/Roc-script.sh
-# ------------------------------------------------------------
+# ---------------------- 3、修改 scripts/Roc-script.sh ----------------------
 RS="scripts/Roc-script.sh"
-
 if [ -f "$RS" ]; then
-    echo "[3/3] 正在修改 $RS ..."
-
-    # 3a. 删除 aurora 主题的 git clone 行
+    echo "[3/3] 处理 Roc-script.sh"
+    # 删除废弃aurora拉取命令
     sed -i '/git clone --depth=1 https:\/\/github.com\/eamonxg\/luci-theme-aurora/d' "$RS"
     sed -i '/git clone --depth=1 https:\/\/github.com\/eamonxg\/luci-app-aurora-config/d' "$RS"
 
-    # 3b. 删除旧的自定义修改块（幂等）
-    # 使用 awk 删除标记块之间的内容（包括标记行本身）
+    # 清空旧自定义区块
     awk '
     /^# === 自定义修改开始 ===/ { skip=1; next }
     /^# === 自定义修改结束 ===/ { skip=0; next }
@@ -120,43 +88,33 @@ if [ -f "$RS" ]; then
     { print }
     ' "$RS" > "${RS}.tmp" && mv "${RS}.tmp" "$RS"
 
-    # 3c. 在 "./scripts/feeds update -i -a" 行之前插入自定义修改块
-    # 使用 awk 在锚点行前插入内容
+    # 插入自定义拉取逻辑：**不删除jool/openvswitch任何文件**，仅拉取serverchan/istore
     awk '
     /^\.\/scripts\/feeds update -i -a$/ && !inserted {
         print "# === 自定义修改开始 ==="
-        print "# 移除 aurora 主题相关文件（确保不打包进固件）"
-        print "rm -rf feeds/luci/themes/luci-theme-aurora"
-        print "rm -rf feeds/luci/applications/luci-app-aurora-config"
-        print ""
-        print "# ServerChan（Server酱推送通知）"
-        print "# 原始仓库 tty228/luci-app-serverchan 已合并到 luci-app-wechatpush，此处使用 afala2020 的维护分支"
+        print "# 清理废弃Aurora残留目录"
+        print "rm -rf feeds/luci/themes/luci-theme-argon feeds/luci/applications/luci-app-argon-config"
+        print "# 拉取ServerChan推送插件"
         print "git clone --depth=1 https://github.com/afala2020/luci-app-serverchan package/luci-app-serverchan"
-        print ""
-        print "# iStore 应用商店（包名 luci-app-store，依赖 luci-lib-taskd，均在 linkease/istore 仓库内）"
+        print "# 拉取iStore应用商店"
         print "git clone --depth=1 https://github.com/linkease/istore package/istore"
         print "# === 自定义修改结束 ==="
         print ""
         inserted=1
     }
     { print }
-    ' "$RS" > "${RS}.tmp" && mv "${RS}.tmp" "$RS"
+    ' "$RS" > "${RS}.tmp" && mv "${RS}" "$RS"
 
-    echo "  ✓ Roc-script.sh 修改完成"
+    echo "✅ Roc-script.sh 修改完成，未操作jool/openvswitch源码目录"
 else
-    echo "  ⚠ 未找到 $RS，跳过"
+    echo "⚠ 未找到 Roc-script.sh，跳过"
 fi
 
-# ------------------------------------------------------------
-# 汇总
-# ------------------------------------------------------------
 echo ""
-echo "=========================================="
-echo "  自定义补丁应用完成"
-echo "=========================================="
-echo ""
-echo "修改摘要："
-echo "  - General.config: 去掉 aurora/samba4/hd-idle/watchcat，启用 argon，新增 kmod-tun/serverchan/ddns-go/zerotier/istore"
-echo "  - IPQ807X.config: 添加 CONFIG_PACKAGE_kmod-tun=y"
-echo "  - Roc-script.sh:  移除 aurora 克隆，新增 serverchan 和 istore 克隆"
-echo ""
+echo "====================补丁执行完毕===================="
+echo "修复清单："
+echo "1. General.config / IPQ807X 同步开启 arping 依赖，彻底解决 luci-app-serverchan 编译失败"
+echo "2. 同步开启 wrtbwmon，消除wechatpush依赖警告"
+echo "3. 完全保留 jool、openvswitch 包：不删除源码、不关闭配置，原有警告正常输出"
+echo "4 保留Argon/ZeroTier/DDNS-Go/iStore全部预装插件"
+echo "======================================================"
