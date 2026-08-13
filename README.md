@@ -1,6 +1,16 @@
 <div align="center">
 <h1>OpenWrt — 云编译</h1>
+更改：（本人ax6,已刷大分区）
+  去掉Aurora 主题，改用Argon 主题
+  去掉Samba4和硬盘休眠这俩NAS功能（都本地飞牛了，就不带这俩了）
+  添加 ZeroTier / EasyTier （kmod-tun内核支持）
+  添加iStore 、DDNS-Go、微信推送ServerChan
+  别的没改，本意就是方便自己使用，插件都换成自己觉得好用的，不满意自己fock去，我给原作者提带一下kmod-tun方便组网，原作者都让我自己fock🙌😒🙌
+  
 
+
+
+  
 ## 特别提示
 
 - **本人不对任何人因使用本固件所遭受的任何理论或实际的损失承担责任！**
