@@ -1,6 +1,6 @@
 <div align="center">
 <h1>OpenWrt — 云编译</h1>
-更改：（本人ax6,已刷大分区）
+更改：（本人ax6,已刷大分区）（ai改的，今晚就出差没时间了，不管了能用就行）
   去掉Aurora 主题，改用Argon 主题
   去掉Samba4和硬盘休眠这俩NAS功能（都本地飞牛了，就不带这俩了）
   添加 ZeroTier / EasyTier （kmod-tun内核支持）
