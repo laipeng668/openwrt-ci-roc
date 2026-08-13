@@ -1,26 +1,4 @@
 #!/usr/bin/env bash
-# ============================================================
-# custom-patch 修复serverchan版本空格 + 依赖 + 锁定仅redmi_ax6_stock
-# 修复点：自动清理serverchan Makefile版本末尾空格，解决APK版本非法报错
-# ============================================================
-set -Eeuo pipefail
-echo "=========================================="
-echo "  执行自定义补丁：修复serverchan版本空格 + 锁定仅编译redmi_ax6_stock"
-echo "=========================================="
-
-# ---------------------- 新增核心修复：清理luci-app-serverchan版本末尾空格 ----------------------
-SERVERCHAN_MAKE="package/luci-app-serverchan/Makefile"
-if [ -f "$SERVERCHAN_MAKE" ]; then
-    echo "[0/3] 修复 luci-app-serverchan 版本号尾部空格"
-    # 移除 PKG_VERSION= 行末尾所有空白字符
-    sed -i -E 's/^(PKG_VERSION:=.*)[[:space:]]+$/\1/' "$SERVERCHAN_MAKE"
-    # 移除块内 VERSION:= 行末尾所有空白字符
-    sed -i -E 's/^(  VERSION:=.*)[[:space:]]+$/\1/' "$SERVERCHAN_MAKE"
-    echo "✅ 已清除版本号尾部空格，解决package version invalid报错"
-else
-    echo "⚠ luci-app-serverchan未克隆，跳过版本修复，后续编译会失败！"
-fi
-
 # ---------------------- 1、处理 General.config ----------------------
 GC="configs/General.config"
 if [ -f "$GC" ]; then
@@ -43,9 +21,6 @@ CONFIG_PACKAGE_kmod-tun=y
 # Argon主题
 CONFIG_PACKAGE_luci-theme-argon=y
 CONFIG_PACKAGE_luci-app-argon-config=y
-# ServerChan推送 + 强制依赖arping
-CONFIG_PACKAGE_luci-app-serverchan=y
-CONFIG_PACKAGE_arping=y
 # WeChat推送配套依赖wrtbwmon
 CONFIG_PACKAGE_luci-app-wechatpush=y
 CONFIG_PACKAGE_wrtbwmon=y
