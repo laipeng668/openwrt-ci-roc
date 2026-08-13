@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 # ============================================================
-# custom-patch 仅修复serverchan编译失败
+# custom-patch 仅修复serverchan编译失败 + 锁定仅编译redmi_ax6_stock设备
 # 文件路径完全适配当前仓库目录树，保留jool/openvswitch不删除不关闭
 # 修复内容：新增arping、wrtbwmon依赖配置，解决插件编译报错
+# 新增：锁定ipq807x仅编译redmi_ax6-stock，大幅减少编译产物与耗时
 # ============================================================
 set -Eeuo pipefail
 echo "=========================================="
-echo "  执行自定义补丁：仅修复serverchan缺失arping报错，保留jool/openvswitch"
+echo "  执行自定义补丁：修复serverchan + 锁定仅编译redmi_ax6_stock"
 echo "=========================================="
-
 # ---------------------- 1、处理 General.config 【路径正确】 ----------------------
 GC="configs/General.config"
 if [ -f "$GC" ]; then
     echo "[1/3] 处理 $GC"
     # 清空旧自定义块，保证幂等重复运行不重复追加
     sed -i '/^### === 自定义新增配置（开始）===/,/^### === 自定义新增配置（结束）===/d' "$GC"
-
     # 主题相关开关
     sed -i 's/^CONFIG_PACKAGE_luci-theme-aurora=y$/CONFIG_PACKAGE_luci-theme-aurora=n/' "$GC"
     sed -i 's/^CONFIG_PACKAGE_luci-app-aurora-config=y$/CONFIG_PACKAGE_luci-app-aurora-config=n/' "$GC"
@@ -24,7 +23,6 @@ if [ -f "$GC" ]; then
     sed -i 's/^CONFIG_PACKAGE_luci-app-watchcat=y$/CONFIG_PACKAGE_luci-app-watchcat=n/' "$GC"
     sed -i 's/^CONFIG_PACKAGE_luci-theme-argon=n$/CONFIG_PACKAGE_luci-theme-argon=y/' "$GC"
     sed -i 's/^CONFIG_PACKAGE_luci-app-argon-config=n$/CONFIG_PACKAGE_luci-app-argon-config=y/' "$GC"
-
     # 写入配置块（重点：新增arping、wrtbwmon；不修改jool/openvswitch）
     cat >> "$GC" << 'PATCH_EOF'
 ### === 自定义新增配置（开始）===
@@ -55,23 +53,52 @@ PATCH_EOF
 else
     echo "⚠ 文件不存在：$GC，跳过"
 fi
-
-# ---------------------- 2、处理 IPQ807X.config 【修复缺失.config后缀bug】 ----------------------
+# ---------------------- 2、处理 IPQ807X.config 【修复缺失.config后缀bug + 锁定仅redmi_ax6_stock】 ----------------------
 IC="configs/IPQ807X.config"
 if [ -f "$IC" ]; then
     echo "[2/3] 处理 $IC"
     # 开启kmod-tun内核模块
     sed -i 's/^# CONFIG_PACKAGE_kmod-tun is not set$/CONFIG_PACKAGE_kmod-tun=y/' "$IC"
     grep -q '^CONFIG_PACKAGE_kmod-tun=y' "$IC" || echo 'CONFIG_PACKAGE_kmod-tun=y' >> "$IC"
-
     # 关键：补充arping、wrtbwmon，解决编译报错
     grep -q '^CONFIG_PACKAGE_arping=y' "$IC" || echo 'CONFIG_PACKAGE_arping=y' >> "$IC"
     grep -q '^CONFIG_PACKAGE_wrtbwmon=y' "$IC" || echo 'CONFIG_PACKAGE_wrtbwmon=y' >> "$IC"
-    echo "✅ $IC 完成，仅新增arping/wrtbwmon，保留jool/openvswitch配置"
+
+    # ========== 新增：锁定仅编译 redmi_ax6_stock 设备 ==========
+    echo "[2/3-1] 写入设备锁定配置至文件末尾，仅保留redmi_ax6_stock"
+    # 先删除旧的设备锁定区块，防止重复叠加
+    sed -i '/^### === 设备锁定：仅编译redmi_ax6_stock ===/,/^### === 设备锁定结束 ===/d' "$IC"
+    # 在文件最底部追加设备黑白名单
+    cat >> "$IC" << 'DEVICE_LOCK_EOF'
+
+### === 设备锁定：仅编译redmi_ax6_stock ===
+# 仅启用红米AX6 stock版本
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_redmi_ax6_stock=y
+# 禁用ipq807x平台下全部其他设备
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_aliyun_ap8220=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_arcadyan_aw1000=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_asus_rt_ax89x=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_buffalo_wxr_5950ax12=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_cmcc_rm2_6=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_compex_wpq873=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_dlink_dl_wrx36=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_edgecore_eap102=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_edimax_cax1800=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_meraki_mx64=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_netgear_rax120=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_qnap_qsw_m2108r=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_redmi_ax6=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_tplink_xdr6088=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_xiaomi_ax3600=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_xiaomi_ax9000=n
+CONFIG_TARGET_qualcommax_ipq807x_DEVICE_zbt_z800ax=n
+### === 设备锁定结束 ===
+DEVICE_LOCK_EOF
+
+    echo "✅ $IC 完成，新增arping/wrtbwmon + 锁定仅编译redmi_ax6_stock，保留jool/openvswitch配置"
 else
     echo "⚠ 文件不存在：$IC，跳过"
 fi
-
 # ---------------------- 3、修改 scripts/Roc-script.sh 【路径正确】 ----------------------
 RS="scripts/Roc-script.sh"
 if [ -f "$RS" ]; then
@@ -79,7 +106,6 @@ if [ -f "$RS" ]; then
     # 删除废弃aurora拉取命令
     sed -i '/git clone --depth=1 https:\/\/github.com\/eamonxg\/luci-theme-aurora/d' "$RS"
     sed -i '/git clone --depth=1 https:\/\/github.com\/eamonxg\/luci-app-aurora-config/d' "$RS"
-
     # 清空旧自定义区块
     awk '
     /^# === 自定义修改开始 ===/ { skip=1; next }
@@ -87,7 +113,6 @@ if [ -f "$RS" ]; then
     skip { next }
     { print }
     ' "$RS" > "${RS}.tmp" && mv "${RS}.tmp" "$RS"
-
     # 插入自定义拉取逻辑：**不删除jool/openvswitch任何文件**，仅拉取serverchan/istore
     awk '
     /^\.\/scripts\/feeds update -i -a$/ && !inserted {
@@ -104,12 +129,10 @@ if [ -f "$RS" ]; then
     }
     { print }
     ' "$RS" > "${RS}.tmp" && mv "${RS}.tmp" "$RS"
-
     echo "✅ $RS 修改完成，未操作jool/openvswitch源码目录"
 else
     echo "⚠ 文件不存在：$RS，跳过"
 fi
-
 echo ""
 echo "====================补丁执行完毕===================="
 echo "修复清单："
@@ -118,4 +141,5 @@ echo "2. General.config / IPQ807X.config 同步开启 arping 依赖，彻底解�
 echo "3. 同步开启 wrtbwmon，消除wechatpush依赖警告"
 echo "4. 完全保留 jool、openvswitch 包：不删除源码、不关闭配置，原有警告正常输出"
 echo "5. 保留Argon/ZeroTier/DDNS-Go/iStore全部预装插件"
+echo "6. 新增设备锁定：ipq807x平台仅编译redmi_ax6_stock，减少大量编译耗时与固件产物"
 echo "======================================================"
