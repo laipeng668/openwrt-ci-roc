@@ -1,0 +1,166 @@
+# ============================================================
+# sync-and-patch.yml — 自动同步上游仓库并应用自定义补丁
+# ============================================================
+# 功能：
+#   1. 从 laipeng668/openwrt-ci-roc 拉取最新代码
+#   2. 合并到你的 fork（保留你的自定义文件）
+#   3. 自动应用自定义补丁（修改 General.config / IPQ807X.config / Roc-script.sh）
+#   4. 提交并推送
+#
+# 触发方式：
+#   - 每天 UTC 06:00 自动执行（北京时间 14:00）
+#   - 手动触发（在 Actions 页面点击 Run workflow）
+#
+# 使用方法：
+#   1. Fork laipeng668/openwrt-ci-roc 到你的 GitHub 账号
+#   2. 将 .github/workflows/sync-and-patch.yml 和 .github/custom-patch.sh
+#      复制到你的 fork 中（保持相同路径）
+#   3. 在 fork 的 Settings → Actions → General → Workflow permissions
+#      中选择 "Read and write permissions"
+#   4. 手动触发一次此工作流，或等待定时触发
+#   5. 之后每次触发 IPQ807X-LibWrt.yml 编译时，都会使用已修补的文件
+# ============================================================
+
+name: Sync-And-Patch
+
+on:
+  schedule:
+    # 每天 UTC 06:00 执行（北京时间 14:00）
+    - cron: '30 17 * * *'
+  workflow_dispatch:
+    # 允许手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  sync-and-patch:
+    runs-on: ubuntu-latest
+    steps:
+      # --------------------------------------------------
+      # Step 1: 检出你的 fork（完整历史，用于合并）
+      # --------------------------------------------------
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # --------------------------------------------------
+      # Step 2: 配置 Git 用户信息
+      # --------------------------------------------------
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # --------------------------------------------------
+      # Step 3: 添加上游远程仓库并拉取最新代码
+      # --------------------------------------------------
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/laipeng668/openwrt-ci-roc.git || true
+          git fetch upstream --tags
+          echo "UPSTREAM_BRANCH=$(git remote show upstream | grep 'HEAD branch' | awk '{print $NF}')" >> $GITHUB_ENV
+
+      # --------------------------------------------------
+      # Step 4: 合并上游代码
+      # 策略：优先采用上游的更改（-X theirs），确保获取所有更新
+      # 自定义文件（.github/custom-patch.sh 和本工作流文件）
+      # 不存在于上游，因此不会被覆盖
+      # 配置文件和脚本会被上游版本覆盖，随后由 custom-patch.sh 重新修补
+      # --------------------------------------------------
+      - name: Merge upstream
+        run: |
+          # 获取当前分支名
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "当前分支: $CURRENT_BRANCH"
+          echo "上游分支: ${{ env.UPSTREAM_BRANCH }}"
+
+          # 尝试合并上游
+          if ! git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-edit -X theirs; then
+            echo "⚠ 合并出现冲突，使用上游版本重置后再应用补丁"
+            git merge --abort || true
+            # 硬重置到上游版本（会覆盖所有本地修改的文件）
+            # 但 .github/ 目录下的自定义文件会被保留（因为它们不存在于上游）
+            # 实际上 git reset --hard 会覆盖所有跟踪的文件
+            # 所以我们需要先保存自定义文件
+            cp .github/custom-patch.sh /tmp/custom-patch.sh.bak
+            cp .github/workflows/sync-and-patch.yml /tmp/sync-and-patch.yml.bak
+            git reset --hard upstream/${{ env.UPSTREAM_BRANCH }}
+            # 恢复自定义文件
+            mkdir -p .github/workflows
+            cp /tmp/custom-patch.sh.bak .github/custom-patch.sh
+            cp /tmp/sync-and-patch.yml.bak .github/workflows/sync-and-patch.yml
+          fi
+
+          echo "✓ 上游代码已合并"
+
+      # --------------------------------------------------
+      # Step 5: 应用自定义补丁
+      # --------------------------------------------------
+      - name: Apply custom patches
+        run: |
+          chmod +x .github/custom-patch.sh
+          bash .github/custom-patch.sh
+
+      # --------------------------------------------------
+      # Step 6: 显示修改差异（用于调试）
+      # --------------------------------------------------
+      - name: Show changes
+        run: |
+          echo "=== General.config 变更 ==="
+          git diff configs/General.config || true
+          echo ""
+          echo "=== IPQ807X.config 变更（kmod-tun 部分）==="
+          git diff configs/IPQ807X.config | grep -A2 -B2 "kmod-tun" || true
+          echo ""
+          echo "=== Roc-script.sh 变更 ==="
+          git diff scripts/Roc-script.sh || true
+
+      # --------------------------------------------------
+      # Step 7: 提交并推送
+      # --------------------------------------------------
+      - name: Commit and push
+        run: |
+          git add -A
+          # 检查是否有变更
+          if git diff --staged --quiet; then
+            echo "没有变更需要提交"
+          else
+            git commit -m "chore: sync upstream and apply custom patches
+
+          - Sync from laipeng668/openwrt-ci-roc
+          - Apply custom patches:
+            * Add kmod-tun support
+            * Replace aurora theme with argon theme
+            * Remove Watchcat / Samba4 / hd-idle
+            * Add ServerChan / DDNS-Go / ZeroTier / iStore
+          - Auto-generated by sync-and-patch.yml"
+            git push
+            echo "✓ 变更已提交并推送"
+          fi
+
+      # --------------------------------------------------
+      # Step 8: 输出摘要
+      # --------------------------------------------------
+      - name: Summary
+        run: |
+          echo "=========================================="
+          echo "  同步与补丁完成"
+          echo "=========================================="
+          echo ""
+          echo "下一步："
+          echo "  1. 前往 Actions 页面手动触发 IPQ807X-LibWrt 工作流编译固件"
+          echo "  2. 或等待定时编译（如果上游工作流有定时触发）"
+          echo ""
+          echo "当前自定义配置："
+          echo "  ✓ kmod-tun 已启用"
+          echo "  ✓ Argon 主题已启用（Aurora 已移除）"
+          echo "  ✓ ServerChan 已添加"
+          echo "  ✓ DDNS-Go 已添加"
+          echo "  ✓ ZeroTier 已添加"
+          echo "  ✓ iStore 已添加"
+          echo "  ✗ Watchcat 已移除"
+          echo "  ✗ Samba4 已移除"
+          echo "  ✗ hd-idle 已移除"
