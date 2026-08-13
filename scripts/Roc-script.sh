@@ -124,6 +124,9 @@ git clone --depth=1 https://github.com/vernesong/OpenClash package/luci-app-open
 rm -rf feeds/luci/themes/luci-theme-argon feeds/luci/applications/luci-app-argon-config
 # 拉取ServerChan推送插件
 git clone --depth=1 https://github.com/afala2020/luci-app-serverchan package/luci-app-serverchan
+# 新增：清除版本号末尾空格，解决编译报错
+sed -i -E 's/^(PKG_VERSION:=.*)[[:space:]]+$/\1/' package/luci-app-serverchan/Makefile
+sed -i -E 's/^(  VERSION:=.*)[[:space:]]+$/\1/' package/luci-app-serverchan/Makefile
 # 拉取iStore应用商店
 git clone --depth=1 https://github.com/linkease/istore package/istore
 # === 自定义修改结束 ===
