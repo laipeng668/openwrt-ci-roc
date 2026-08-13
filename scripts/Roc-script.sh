@@ -116,16 +116,13 @@ git clone --depth=1 https://github.com/vernesong/OpenClash package/luci-app-open
 # 清理 PassWall 的 chnlist 规则文件
 # echo "baidu.com"  > package/luci-app-passwall/luci-app-passwall/root/usr/share/passwall/rules/chnlist
 
+
 # === 自定义修改开始 ===
-# 移除 aurora 主题相关文件（确保不打包进固件）
-rm -rf feeds/luci/themes/luci-theme-aurora
-rm -rf feeds/luci/applications/luci-app-aurora-config
-
-# ServerChan（Server酱推送通知）
-# 原始仓库 tty228/luci-app-serverchan 已合并到 luci-app-wechatpush，此处使用 afala2020 的维护分支
+# 清理废弃Aurora残留目录
+rm -rf feeds/luci/themes/luci-theme-argon feeds/luci/applications/luci-app-argon-config
+# 拉取ServerChan推送插件
 git clone --depth=1 https://github.com/afala2020/luci-app-serverchan package/luci-app-serverchan
-
-# iStore 应用商店（包名 luci-app-store，依赖 luci-lib-taskd，均在 linkease/istore 仓库内）
+# 拉取iStore应用商店
 git clone --depth=1 https://github.com/linkease/istore package/istore
 # === 自定义修改结束 ===
 
