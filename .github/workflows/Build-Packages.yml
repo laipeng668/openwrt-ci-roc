@@ -39,6 +39,11 @@ on:
           - luci-app-openlist2
           - luci-theme-argon
           - luci-theme-aurora
+      enable_cache:
+        description: 可选：启用编译缓存（默认开启）。
+        required: false
+        default: true
+        type: boolean
   workflow_call:
     inputs:
       sdk_version:
@@ -53,6 +58,10 @@ on:
         required: false
         default: ALL
         type: string
+      enable_cache:
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -154,10 +163,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.Prepare.outputs.matrix) }}
-    concurrency:
-      group: packages-${{ matrix.sdk_version }}-${{ matrix.name }}-${{ github.ref }}
-      cancel-in-progress: false
-
     steps:
     - name: Check Server Performance(检查服务器性能)
       run: |
@@ -185,6 +190,7 @@ jobs:
           gawk \
           gcc-multilib \
           gettext \
+          gnupg \
           git \
           libelf-dev \
           libfuse-dev \
@@ -207,7 +213,33 @@ jobs:
       with:
         persist-credentials: false
 
+    - name: Resolve And Verify SDK Metadata(解析并验证SDK元数据)
+      id: sdk
+      env:
+        OPENWRT_TARGET: ${{ matrix.openwrt_target }}
+        OPENWRT_SUBTARGET: ${{ matrix.openwrt_subtarget }}
+        OPENWRT_SDK_VERSION: ${{ matrix.sdk_version }}
+        CACHE_CONFIG_HASH: ${{ hashFiles('configs/*.config', 'scripts/SDK-script.sh') }}
+        SDK_CACHE_DIR: ${{ runner.temp }}/openwrt-sdk-cache
+        SDK_METADATA_REFRESH: ${{ matrix.sdk_version == 'main' && 'true' || 'false' }}
+        SDK_METADATA_ONLY: '1'
+      run: |
+        chmod +x scripts/SDK-script.sh
+        scripts/SDK-script.sh
+        echo "config_hash=${CACHE_CONFIG_HASH:0:7}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore SDK Ccache(恢复SDK编译缓存)
+      if: ${{ inputs.enable_cache }}
+      id: ccache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/openwrt-sdk/.ccache
+        key: openwrt-ccache-${{ runner.os }}-${{ matrix.sdk_version }}-${{ matrix.openwrt_target }}-${{ matrix.openwrt_subtarget }}-${{ steps.sdk.outputs.sha256_short }}-${{ inputs.package }}-${{ steps.sdk.outputs.config_hash }}
+        restore-keys: |
+          openwrt-ccache-${{ runner.os }}-${{ matrix.sdk_version }}-${{ matrix.openwrt_target }}-${{ matrix.openwrt_subtarget }}-${{ steps.sdk.outputs.sha256_short }}-
+
     - name: Build Packages With OpenWrt SDK(使用OpenWrt SDK编译软件包)
+      id: build
       env:
         OPENWRT_TARGET: ${{ matrix.openwrt_target }}
         OPENWRT_SUBTARGET: ${{ matrix.openwrt_subtarget }}
@@ -217,21 +249,36 @@ jobs:
         PACKAGE_SELECTED_ARCH: ${{ inputs.arch }}
         PACKAGE_SELECTION: ${{ inputs.package }}
         OPENWRT_SDK_VERSION: ${{ matrix.sdk_version }}
+        SDK_CACHE_DIR: ${{ runner.temp }}/openwrt-sdk-cache
+        SDK_METADATA_REFRESH: ${{ matrix.sdk_version == 'main' && 'true' || 'false' }}
+        SDK_ROOT: ${{ runner.temp }}/openwrt-sdk
+        SDK_SHA256: ${{ steps.sdk.outputs.sha256 }}
+        SDK_URL: ${{ steps.sdk.outputs.url }}
       run: |
         chmod +x scripts/SDK-script.sh
         scripts/SDK-script.sh
 
+    - name: Save SDK Ccache(保存SDK编译缓存)
+      if: ${{ inputs.enable_cache && !cancelled() && steps.build.outputs.sha256 != '' && (steps.ccache.outputs.cache-hit != 'true' || steps.build.outputs.sha256 != steps.sdk.outputs.sha256) }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/openwrt-sdk/.ccache
+        key: openwrt-ccache-${{ runner.os }}-${{ matrix.sdk_version }}-${{ matrix.openwrt_target }}-${{ matrix.openwrt_subtarget }}-${{ steps.build.outputs.sha256_short }}-${{ inputs.package }}-${{ steps.sdk.outputs.config_hash }}
+
     - name: Upload Packages Artifact(上传软件包产物)
+      if: ${{ always() && !cancelled() }}
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.sdk_version }}-Packages-${{ matrix.name }}
         path: artifacts/packages/*
         if-no-files-found: error
+        compression-level: 0
+        retention-days: 7
 
   Release:
     runs-on: ubuntu-24.04
     needs: Build
-    if: ${{ !cancelled() && needs.Build.result == 'success' }}
+    if: ${{ always() && !cancelled() }}
     permissions:
       contents: write
       actions: read
@@ -244,7 +291,19 @@ jobs:
         path: artifacts/release
         merge-multiple: true
 
+    - name: Check Downloaded Packages(检查已下载的软件包)
+      id: packages
+      run: |
+        mkdir -p artifacts/release
+        if find artifacts/release -type f -name '*.zip' -print -quit | grep -q .; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::没有可发布的成功编译产物，跳过 Release 上传。"
+        fi
+
     - name: Upload Packages To Release(发布软件包)
+      if: ${{ steps.packages.outputs.found == 'true' }}
       uses: ncipollo/release-action@v1
       with:
         name: Packages

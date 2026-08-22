@@ -55,6 +55,7 @@ defaults:
 env:
   GENERAL_CONFIG_FILE: configs/General.config
   DIY_SCRIPT: scripts/Roc-script.sh
+  OPENWRT_PATH: /mnt/openwrt
   TZ: Asia/Shanghai
 
 jobs:
@@ -62,11 +63,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
-      contents: write
-      actions: write
+      contents: read
+      actions: read
     concurrency:
       group: openwrt-${{ inputs.artifact_prefix }}-${{ github.ref }}
       cancel-in-progress: false
+    outputs:
+      artifact_name: ${{ steps.variables.outputs.artifact_name }}
+      ccache_key: ${{ steps.variables.outputs.ccache_key }}
+      staging_key: ${{ steps.variables.outputs.staging_key }}
+      version_info: ${{ steps.source.outputs.version_info }}
+      version_kernel: ${{ steps.source.outputs.version_kernel }}
 
     steps:
     - name: Check Server Performance(检查服务器性能)
@@ -112,25 +119,38 @@ jobs:
         persist-credentials: false
 
     - name: Clone Source Code(克隆源代码)
+      id: source
       env:
         REPO_URL: ${{ inputs.repo_url }}
         REPO_BRANCH: ${{ inputs.repo_branch }}
         KERNEL_FILE: ${{ inputs.kernel_file }}
       run: |
         df -hT "$GITHUB_WORKSPACE"
-        sudo mkdir -p /mnt/openwrt
-        sudo chown -R "$(id -u):$(id -g)" /mnt/openwrt
-        git clone --depth 1 -b "$REPO_BRANCH" --single-branch "$REPO_URL" /mnt/openwrt
-        cd /mnt/openwrt
-        echo "OPENWRT_PATH=$PWD" >> "$GITHUB_ENV"
+        sudo mkdir -p "$OPENWRT_PATH"
+        sudo chown -R "$(id -u):$(id -g)" "$OPENWRT_PATH"
+        for attempt in 1 2 3; do
+          if git clone --depth 1 -b "$REPO_BRANCH" --single-branch "$REPO_URL" "$OPENWRT_PATH"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "Error: source clone failed after $attempt attempts" >&2
+            exit 1
+          fi
+          echo "::warning::Source clone failed (attempt $attempt/3); retrying."
+          sudo rm -rf "$OPENWRT_PATH"
+          sudo mkdir -p "$OPENWRT_PATH"
+          sudo chown -R "$(id -u):$(id -g)" "$OPENWRT_PATH"
+          sleep $((attempt * 5))
+        done
+        cd "$OPENWRT_PATH"
         VERSION_INFO="$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")"
         {
-          echo "VERSION_INFO<<EOF"
+          echo "version_info<<EOF"
           echo "$VERSION_INFO"
           echo "EOF"
-        } >> "$GITHUB_ENV"
+        } >> "$GITHUB_OUTPUT"
         VERSION_KERNEL="$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' "target/linux/generic/$KERNEL_FILE" | head -n 1 || true)"
-        echo "VERSION_KERNEL=${VERSION_KERNEL:-unknown}" >> "$GITHUB_ENV"
+        echo "version_kernel=${VERSION_KERNEL:-unknown}" >> "$GITHUB_OUTPUT"
 
     - name: Disable Mainland Mirrors(屏蔽大陆下载源)
       run: |
@@ -148,7 +168,10 @@ jobs:
         sed -i '/raw\.gitmirror\.com/d' scripts/download.pl
 
     - name: Generate Variables(生成变量)
+      id: variables
       env:
+        ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
+        CUSTOMIZATION_HASH: ${{ hashFiles('scripts/Roc-script.sh', 'configs/General.config', inputs.config_file) }}
         REPO_URL: ${{ inputs.repo_url }}
         REPO_BRANCH: ${{ inputs.repo_branch }}
         CONFIG_FILE: ${{ inputs.config_file }}
@@ -160,47 +183,72 @@ jobs:
         SOURCE_REPO="${SOURCE_REPO%.git}"
         DEVICE_TARGET="$(awk -F '"' '/CONFIG_TARGET_BOARD/ {print $2; exit}' .config)"
         DEVICE_SUBTARGET="$(awk -F '"' '/CONFIG_TARGET_SUBTARGET/ {print $2; exit}' .config)"
-        HASH="$(git log -1 --pretty=format:'%h')"
-        CACHE_PREFIX="${SOURCE_REPO}-${REPO_BRANCH}-${DEVICE_TARGET}-${DEVICE_SUBTARGET}"
-        CACHE_KEY="${CACHE_PREFIX}-${HASH}"
+        HASH="$(git rev-parse HEAD)"
+        CACHE_SCOPE="${CONFIG_FILE##*/}"
+        CACHE_SCOPE="${CACHE_SCOPE%.config}"
+        CUSTOMIZATION_HASH="${CUSTOMIZATION_HASH:0:7}"
+        HASH="${HASH:0:7}"
+        CACHE_PREFIX="openwrt-${RUNNER_OS}-${SOURCE_REPO}-${REPO_BRANCH}-${DEVICE_TARGET}-${DEVICE_SUBTARGET}"
+        CCACHE_KEY="${CACHE_PREFIX}-ccache-${CACHE_SCOPE}-${CUSTOMIZATION_HASH}-${HASH}"
+        CCACHE_RESTORE_PREFIX="${CACHE_PREFIX}-ccache-${CACHE_SCOPE}-${CUSTOMIZATION_HASH}-"
+        CCACHE_SCOPE_PREFIX="${CACHE_PREFIX}-ccache-${CACHE_SCOPE}-"
+        CCACHE_FALLBACK_PREFIX="${CACHE_PREFIX}-ccache-"
+        STAGING_KEY="${CACHE_PREFIX}-staging-${CACHE_SCOPE}-${CUSTOMIZATION_HASH}-${HASH}"
+        STAGING_RESTORE_PREFIX="${CACHE_PREFIX}-staging-${CACHE_SCOPE}-${CUSTOMIZATION_HASH}-"
+        STAGING_SCOPE_PREFIX="${CACHE_PREFIX}-staging-${CACHE_SCOPE}-"
+        STAGING_FALLBACK_PREFIX="${CACHE_PREFIX}-staging-"
+        ARTIFACT_NAME="firmware-${ARTIFACT_PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
         {
-          echo "SOURCE_REPO=$SOURCE_REPO"
-          echo "DEVICE_TARGET=$DEVICE_TARGET"
-          echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET"
-          echo "HASH=$HASH"
-          echo "CACHE_PREFIX=$CACHE_PREFIX"
-          echo "CACHE_KEY=$CACHE_KEY"
+          echo "CCACHE_KEY=$CCACHE_KEY"
+          echo "CCACHE_RESTORE_PREFIX=$CCACHE_RESTORE_PREFIX"
+          echo "CCACHE_SCOPE_PREFIX=$CCACHE_SCOPE_PREFIX"
+          echo "CCACHE_FALLBACK_PREFIX=$CCACHE_FALLBACK_PREFIX"
+          echo "STAGING_KEY=$STAGING_KEY"
+          echo "STAGING_RESTORE_PREFIX=$STAGING_RESTORE_PREFIX"
+          echo "STAGING_SCOPE_PREFIX=$STAGING_SCOPE_PREFIX"
+          echo "STAGING_FALLBACK_PREFIX=$STAGING_FALLBACK_PREFIX"
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME"
         } >> "$GITHUB_ENV"
+        {
+          echo "artifact_name=$ARTIFACT_NAME"
+          echo "ccache_key=$CCACHE_KEY"
+          echo "staging_key=$STAGING_KEY"
+        } >> "$GITHUB_OUTPUT"
 
-    - name: Cache Toolchain(缓存工具链)
+    - name: Cache Ccache(缓存编译结果)
       uses: actions/cache@v4
       with:
-        key: ${{ env.CACHE_KEY }}
+        key: ${{ env.CCACHE_KEY }}
         restore-keys: |
-          ${{ env.CACHE_PREFIX }}-
-        path: |
-          ${{ env.OPENWRT_PATH }}/.ccache
-          ${{ env.OPENWRT_PATH }}/staging_dir
+          ${{ env.CCACHE_RESTORE_PREFIX }}
+          ${{ env.CCACHE_SCOPE_PREFIX }}
+          ${{ env.CCACHE_FALLBACK_PREFIX }}
+        path: ${{ env.OPENWRT_PATH }}/.ccache
 
-    - name: Refresh The Cache(刷新缓存)
-      run: |
-        if [ -d "$OPENWRT_PATH/staging_dir" ]; then
-          find "$OPENWRT_PATH/staging_dir" -type d -name "stamp" -not -path "*target*" | while read -r dir; do
-            find "$dir" -type f -exec touch {} +
-          done
-        fi
+    - name: Cache Staging Directory(缓存工具链)
+      uses: actions/cache@v4
+      with:
+        key: ${{ env.STAGING_KEY }}
+        restore-keys: |
+          ${{ env.STAGING_RESTORE_PREFIX }}
+          ${{ env.STAGING_SCOPE_PREFIX }}
+          ${{ env.STAGING_FALLBACK_PREFIX }}
+        path: ${{ env.OPENWRT_PATH }}/staging_dir
 
-    - name: Install Feeds(安装feeds)
+    - name: Update Feeds(更新feeds)
       run: |
         cd "$OPENWRT_PATH"
         ./scripts/feeds update -a
-        ./scripts/feeds install -a
 
     - name: Load Custom Configuration(加载自定义配置)
+      env:
+        CONFIG_FILE: ${{ inputs.config_file }}
       run: |
         chmod +x "$GITHUB_WORKSPACE/$DIY_SCRIPT"
         cd "$OPENWRT_PATH"
-        "$GITHUB_WORKSPACE/$DIY_SCRIPT"
+        "$GITHUB_WORKSPACE/$DIY_SCRIPT" \
+          "$GITHUB_WORKSPACE/$CONFIG_FILE" \
+          "$GITHUB_WORKSPACE/$GENERAL_CONFIG_FILE"
 
     - name: Download DL Package(下载DL软件包)
       env:
@@ -212,24 +260,48 @@ jobs:
           sed -i '/CONFIG_PACKAGE_sqm-scripts-nss=y/d' .config
         fi
         make defconfig
-        make download -j"$(nproc)"
+        if [ -d staging_dir ]; then
+          # Refresh component stamps before aggregate stamps so restored host tools and toolchains remain valid.
+          tools_stamp="$(find staging_dir/host -maxdepth 2 -type f -name '.tools_compile*' -print -quit 2>/dev/null || true)"
+          if [ -n "$tools_stamp" ]; then
+            find staging_dir/host/stamp -maxdepth 1 -type f ! -name '.tools_compile*' -exec touch {} + 2>/dev/null || true
+            find staging_dir/host -maxdepth 2 -type f -name '.tools_compile*' -exec touch {} +
+          fi
+          for toolchain_dir in staging_dir/toolchain-*; do
+            [ -d "$toolchain_dir" ] || continue
+            toolchain_stamp="$(find "$toolchain_dir" -maxdepth 2 -type f -name '.toolchain_compile*' -print -quit)"
+            [ -n "$toolchain_stamp" ] || continue
+            if [ -d "$toolchain_dir/stamp" ]; then
+              find "$toolchain_dir/stamp" -maxdepth 1 -type f ! -name '.toolchain_compile*' -exec touch {} +
+            fi
+            find "$toolchain_dir" -maxdepth 2 -type f -name '.toolchain_compile*' -exec touch {} +
+          done
+        fi
+        for attempt in 1 2 3; do
+          if make download -j"$(nproc)"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "Error: make download failed after $attempt attempts" >&2
+            exit 1
+          fi
+          echo "::warning::make download failed (attempt $attempt/3); removing incomplete files before retry."
+          find dl -type f -size -1024c -print -delete
+          sleep $((attempt * 5))
+        done
 
     - name: Compile Firmware(开始编译固件)
-      id: compile
       run: |
         cd "$OPENWRT_PATH"
         echo -e "$(nproc) thread compile"
-        make -j"$(nproc)" || make -j1 || make -j1 V=s
-        echo "status=success" >> "$GITHUB_OUTPUT"
-        echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> "$GITHUB_ENV"
-        echo "FILE_DATE=$(date +"%Y.%m.%d")" >> "$GITHUB_ENV"
+        make -j"$(nproc)" || make -j1 V=s
 
     - name: Check Space Usage(检查空间使用情况)
       if: (!cancelled())
       run: df -hT
 
     - name: Organize Files(整理文件)
-      if: steps.compile.outputs.status == 'success'
+      id: organize
       env:
         ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
         MANIFEST_FILE: ${{ inputs.manifest_file }}
@@ -263,18 +335,51 @@ jobs:
             mv "$file" "${file//qualcommax/nowifi}"
           done
         fi
+        third_party_sources="$OPENWRT_PATH/third-party-sources.txt"
+        if [ ! -s "$third_party_sources" ]; then
+          echo "Error: third-party source revision file was not generated: $third_party_sources" >&2
+          exit 1
+        fi
+        cp "$third_party_sources" "$ARTIFACT_PREFIX.third-party-sources.txt"
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
-        echo "FIRMWARE_PATH=$PWD" >> "$GITHUB_ENV"
+        echo "firmware_path=$PWD" >> "$GITHUB_OUTPUT"
+
+    - name: Upload Firmware Artifact(上传固件产物)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ${{ steps.organize.outputs.firmware_path }}/*
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 3
+
+  Release:
+    runs-on: ubuntu-24.04
+    needs: Build
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: openwrt-release-${{ github.repository }}-${{ inputs.artifact_prefix }}
+      cancel-in-progress: false
+
+    steps:
+    - name: Download Firmware Artifact(下载固件产物)
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.Build.outputs.artifact_name }}
+        path: artifacts/firmware
 
     - name: Upload Firmware To Release(发布固件)
-      if: steps.compile.outputs.status == 'success'
       uses: ncipollo/release-action@v1
       with:
         name: ${{ inputs.firmware_tag }}
         allowUpdates: true
+        replacesArtifacts: true
+        artifactErrorsFailBuild: true
         tag: ${{ inputs.firmware_tag }}
         token: ${{ github.token }}
-        artifacts: ${{ env.FIRMWARE_PATH }}/*
+        artifacts: artifacts/firmware/*
         body: |
           **This is OpenWrt Firmware for ${{ inputs.firmware_tag }}**
           ### 📒 固件信息
@@ -285,40 +390,70 @@ jobs:
           - 🌐 默认地址: **192.168.2.1**
           - 🔑 默认密码: none
           ### 🧊 固件版本
-          - 固件内核版本：**${{ env.VERSION_KERNEL }}**
+          - 固件内核版本：**${{ needs.Build.outputs.version_kernel }}**
           - 固件编译前最后一次➦[主源码](${{ inputs.repo_url }})更新记录
-          - ${{ env.VERSION_INFO }}
+          - ${{ needs.Build.outputs.version_info }}
 
+  Cleanup:
+    runs-on: ubuntu-24.04
+    needs:
+      - Build
+      - Release
+    if: ${{ !cancelled() && needs.Build.result == 'success' && needs.Release.result == 'success' }}
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
     - name: Delete Old Cache(删除旧缓存)
-      if: steps.compile.outputs.status == 'success'
       env:
+        CCACHE_KEY: ${{ needs.Build.outputs.ccache_key }}
         GH_TOKEN: ${{ github.token }}
+        STAGING_KEY: ${{ needs.Build.outputs.staging_key }}
       run: |
-        gh cache list --key "${CACHE_PREFIX}-" --json key --jq '.[].key' |
-          while read -r key; do
-            [ -n "$key" ] || continue
-            if [ "$key" != "$CACHE_KEY" ]; then
-              gh cache delete "$key" || true
-            fi
-          done
-        echo "========cache status========"
-        if [ -d "$OPENWRT_PATH/.ccache" ]; then
-          echo "ccache: $(du -sh "$OPENWRT_PATH/.ccache" | cut -f 1)"
-        fi
-        if [ -d "$OPENWRT_PATH/staging_dir" ]; then
-          echo "staging: $(du -sh "$OPENWRT_PATH/staging_dir" | cut -f 1)"
-        fi
+        delete_old_cache_versions() {
+          local cache_id
+          local cache_key
+          local cache_list_file
+          local current_key="$1"
+          local current_created_at
+          local key_prefix="${current_key%-*}"
+          key_prefix="${key_prefix%-*}-"
+
+          cache_list_file="$(mktemp "$RUNNER_TEMP/openwrt-cache-list.XXXXXX.json")"
+          gh cache list --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" --key "$key_prefix" --limit 10000 --sort created_at --order desc --json id,key,createdAt > "$cache_list_file"
+          current_created_at="$(jq -r --arg key "$current_key" '[.[] | select(.key == $key) | .createdAt] | first // empty' "$cache_list_file")"
+          if [ -z "$current_created_at" ]; then
+            echo "::warning::Current cache was not found; skip cleanup for $current_key."
+            rm -f "$cache_list_file"
+            return 0
+          fi
+
+          jq -r --arg key "$current_key" --arg created_at "$current_created_at" \
+            '.[] | select(.key != $key and .createdAt < $created_at) | [.id, .key] | @tsv' "$cache_list_file" |
+            while IFS=$'\t' read -r cache_id cache_key; do
+              [ -n "$cache_id" ] || continue
+              gh cache delete --repo "$GITHUB_REPOSITORY" "$cache_id" || echo "::warning::Unable to delete cache $cache_key ($cache_id)."
+            done
+          rm -f "$cache_list_file"
+        }
+
+        delete_old_cache_versions "$CCACHE_KEY"
+        delete_old_cache_versions "$STAGING_KEY"
 
     - name: Delete Old Workflows(删除旧工作流)
       if: ${{ inputs.delete_old_workflows }}
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        cutoff="$(date -u -d '2 days ago' +%s)"
-        gh run list --limit 100 --json databaseId,createdAt,status --jq '.[] | select(.status != "in_progress" and .status != "queued") | [.databaseId, .createdAt] | @tsv' |
-          while IFS=$'\t' read -r run_id created_at; do
-            run_ts="$(date -u -d "$created_at" +%s)"
-            if [ "$run_ts" -lt "$cutoff" ]; then
-              gh run delete "$run_id"
-            fi
-          done
+        cutoff="$(date -u -d '2 days ago' +'%Y-%m-%dT%H:%M:%SZ')"
+        run_ids_file="$RUNNER_TEMP/old-workflow-run-ids.txt"
+        gh api --method GET --paginate "/repos/$GITHUB_REPOSITORY/actions/runs" \
+          -f status=completed \
+          -f "created=<$cutoff" \
+          -F per_page=100 \
+          --jq '.workflow_runs[].id' > "$run_ids_file"
+        while read -r run_id; do
+          [ -n "$run_id" ] || continue
+          gh run delete --repo "$GITHUB_REPOSITORY" "$run_id" || echo "::warning::Unable to delete workflow run $run_id."
+        done < "$run_ids_file"
