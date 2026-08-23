@@ -31,12 +31,8 @@ on:
       build_packages:
         description: 运行 Build-Packages
         required: false
-        type: choice
-        default: 开启（使用缓存）
-        options:
-          - 关闭
-          - 开启（使用缓存）
-          - 开启（不使用缓存）
+        type: boolean
+        default: true
   schedule:
     - cron: "0 18 * * 5"
 
@@ -86,11 +82,10 @@ jobs:
         actions: write
 
     Build-Packages:
-      if: ${{ github.event_name == 'schedule' || inputs.build_packages != '关闭' }}
+      if: ${{ github.event_name == 'schedule' || inputs.build_packages }}
       uses: ./.github/workflows/Build-Packages.yml
       permissions:
         contents: write
         actions: read
       with:
         sdk_version: ALL
-        enable_cache: ${{ github.event_name == 'schedule' || inputs.build_packages == '开启（使用缓存）' }}

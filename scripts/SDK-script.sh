@@ -39,7 +39,6 @@ unset CONFIG_FILES
 RUNNER_TEMP="${RUNNER_TEMP:-/tmp}"
 SDK_ROOT="${SDK_ROOT:-$RUNNER_TEMP/openwrt-sdk}"
 SDK_CACHE_DIR="${SDK_CACHE_DIR:-$RUNNER_TEMP/openwrt-sdk-cache}"
-SDK_CCACHE_DIR="${SDK_CCACHE_DIR:-$SDK_ROOT/.ccache}"
 OUTPUT_DIR="${OUTPUT_DIR:-${GITHUB_WORKSPACE:-$PWD}/artifacts/packages}"
 PACKAGE_ARCH_NAME="${PACKAGE_ARCH_NAME:-$OPENWRT_TARGET-$OPENWRT_SUBTARGET}"
 PACKAGE_SELECTED_ARCH="${PACKAGE_SELECTED_ARCH:-$PACKAGE_ARCH_NAME}"
@@ -459,7 +458,6 @@ emit_sdk_metadata() {
   {
     echo "url=$RESOLVED_SDK_URL"
     echo "sha256=$EXPECTED_SDK_SHA256"
-    echo "sha256_short=${EXPECTED_SDK_SHA256:0:7}"
     echo "archive=$SDK_ARCHIVE"
   } >> "$GITHUB_OUTPUT"
 }
@@ -579,30 +577,6 @@ extract_sdk() {
       tar -xf "$SDK_ARCHIVE" --strip-components=1 -C "$SDK_ROOT"
       ;;
   esac
-}
-
-extract_sdk_preserving_build_cache() {
-  local cache_name
-  local preserved_root="$RUNNER_TEMP/openwrt-sdk-preserved-cache"
-
-  rm -rf "$preserved_root"
-  mkdir -p "$preserved_root"
-  for cache_name in dl .ccache; do
-    if [ -d "$SDK_ROOT/$cache_name" ]; then
-      mv "$SDK_ROOT/$cache_name" "$preserved_root/$cache_name"
-    fi
-  done
-
-  rm -rf "$SDK_ROOT"
-  mkdir -p "$SDK_ROOT"
-  extract_sdk "$RESOLVED_SDK_URL"
-
-  for cache_name in dl .ccache; do
-    [ -d "$preserved_root/$cache_name" ] || continue
-    mkdir -p "$SDK_ROOT/$cache_name"
-    cp -a "$preserved_root/$cache_name/." "$SDK_ROOT/$cache_name/"
-  done
-  rm -rf "$preserved_root"
 }
 
 record_source_revision() {
@@ -845,12 +819,6 @@ load_config_files() {
     cat "$source_file" >> "$SDK_ROOT/.config"
     printf '\n' >> "$SDK_ROOT/.config"
   done
-
-  sed -i \
-    -e '/^CONFIG_CCACHE=/d' \
-    -e '/^# CONFIG_CCACHE is not set$/d' \
-    "$SDK_ROOT/.config"
-  printf 'CONFIG_CCACHE=y\n' >> "$SDK_ROOT/.config"
 }
 
 config_package_enabled() {
@@ -1293,12 +1261,12 @@ compile_packages() {
     parallel_exit_code=0
     final_exit_code=0
 
-    if make -j"$job_count" CCACHE_DIR="$SDK_CCACHE_DIR" "$compile_target"; then
+    if make -j"$job_count" "$compile_target"; then
       :
     else
       parallel_exit_code=$?
       log "Parallel compile failed for $compile_target; retry with a single job and verbose output"
-      if make -j1 CCACHE_DIR="$SDK_CCACHE_DIR" "$compile_target" V=s; then
+      if make -j1 "$compile_target" V=s; then
         :
       else
         final_exit_code=$?
@@ -1574,7 +1542,8 @@ download_sdk_with_metadata_retry
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   emit_sdk_metadata
 fi
-extract_sdk_preserving_build_cache
+rm -rf "$SDK_ROOT"
+extract_sdk "$RESOLVED_SDK_URL"
 [ -x "$SDK_ROOT/scripts/feeds" ] || die "Invalid SDK archive: scripts/feeds was not found"
 [ -f "$SDK_ROOT/Makefile" ] || die "Invalid SDK archive: Makefile was not found"
 : > "$SOURCE_REVISIONS_FILE"
@@ -1597,8 +1566,7 @@ prune_luci_translations
 
 log "Load package config"
 load_config_files
-mkdir -p "$SDK_CCACHE_DIR"
-make CCACHE_DIR="$SDK_CCACHE_DIR" defconfig
+make defconfig
 generate_compile_targets
 generate_artifact_filters
 
