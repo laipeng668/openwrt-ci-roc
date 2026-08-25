@@ -197,7 +197,7 @@ jobs:
         STAGING_RESTORE_PREFIX="${CACHE_PREFIX}-staging-${CACHE_SCOPE}-${CUSTOMIZATION_HASH}-"
         STAGING_SCOPE_PREFIX="${CACHE_PREFIX}-staging-${CACHE_SCOPE}-"
         STAGING_FALLBACK_PREFIX="${CACHE_PREFIX}-staging-"
-        ARTIFACT_NAME="firmware-${ARTIFACT_PREFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        ARTIFACT_NAME="firmware-${ARTIFACT_PREFIX}"
         {
           echo "CCACHE_KEY=$CCACHE_KEY"
           echo "CCACHE_RESTORE_PREFIX=$CCACHE_RESTORE_PREFIX"
@@ -351,6 +351,7 @@ jobs:
         path: ${{ steps.organize.outputs.firmware_path }}/*
         if-no-files-found: error
         compression-level: 0
+        overwrite: true
         retention-days: 3
 
   Release:
