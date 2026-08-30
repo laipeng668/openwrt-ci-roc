@@ -225,7 +225,7 @@ if package_enabled frp frpc frps luci-app-frpc luci-app-frps; then
     feeds/packages/net/frp
   git_sparse_clone master https://github.com/laipeng668/packages lang/golang
   mv package/golang feeds/packages/lang/golang
-  git_sparse_clone frp-binary-toml https://github.com/laipeng668/packages net/frp
+  git_sparse_clone frp-binary https://github.com/laipeng668/packages net/frp
   mv package/frp feeds/packages/net/frp
 fi
 
@@ -239,7 +239,7 @@ if package_enabled luci-app-frps; then
   frp_luci_paths+=(applications/luci-app-frps)
 fi
 if [ "${#frp_luci_paths[@]}" -gt 0 ]; then
-  git_sparse_clone frp-toml https://github.com/laipeng668/luci "${frp_luci_paths[@]}"
+  git_sparse_clone frp https://github.com/laipeng668/luci "${frp_luci_paths[@]}"
   for frp_luci_path in "${frp_luci_paths[@]}"; do
     mv "package/$(basename "$frp_luci_path")" "feeds/luci/$frp_luci_path"
   done

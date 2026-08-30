@@ -5,10 +5,10 @@ PACKAGES_REPO="${PACKAGES_REPO:-https://github.com/laipeng668/packages}"
 ARIA2_REF="${ARIA2_REF:-aria2}"
 ARIANG_REF="${ARIANG_REF:-ariang}"
 GOLANG_REF="${GOLANG_REF:-master}"
-FRP_BINARY_REF="${FRP_BINARY_REF:-frp-binary-toml}"
+FRP_REF="${FRP_REF:-frp-binary}"
 NGINX_REF="${NGINX_REF:-nginx}"
 LUCI_REPO="${LUCI_REPO:-https://github.com/laipeng668/luci}"
-FRP_LUCI_REF="${FRP_LUCI_REF:-frp-toml}"
+FRP_LUCI_REF="${FRP_LUCI_REF:-frp}"
 GECOOSAC_REPO="${GECOOSAC_REPO:-https://github.com/laipeng668/luci-app-gecoosac}"
 GECOOSAC_REF="${GECOOSAC_REF:-main}"
 ARGON_REPO="${ARGON_REPO:-https://github.com/jerrykuku/luci-theme-argon}"
@@ -100,9 +100,6 @@ normalize_package_selection() {
       ;;
     frps)
       printf 'luci-app-frps\n'
-      ;;
-    frp-binary-toml | frp-toml)
-      printf 'frp\n'
       ;;
     nginx-full | nginx-ssl)
       printf 'nginx\n'
@@ -714,7 +711,7 @@ load_custom_packages() {
 
   if selection_in frp luci-app-frpc luci-app-frps; then
     git_sparse_clone "$GOLANG_REF" "$PACKAGES_REPO" feeds/packages lang/golang
-    git_sparse_clone "$FRP_BINARY_REF" "$PACKAGES_REPO" feeds/packages net/frp
+    git_sparse_clone "$FRP_REF" "$PACKAGES_REPO" feeds/packages net/frp
     git_sparse_clone "$FRP_LUCI_REF" "$LUCI_REPO" feeds/luci \
       applications/luci-app-frpc \
       applications/luci-app-frps

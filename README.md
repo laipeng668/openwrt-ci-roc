@@ -38,9 +38,9 @@
 - 编译的软件包来源及跟踪分支如下；每次构建都会拉取对应分支的最新提交，并把实际 commit 写入 `BUILDINFO.json`，不会固定第三方源码版本：
   - `https://github.com/laipeng668/packages` 的 `aria2` 分支：`net/aria2`
   - `https://github.com/laipeng668/packages` 的 `ariang` 分支：`net/ariang`
-  - `https://github.com/laipeng668/packages` 的 `frp-binary-toml` 分支：`net/frp`
+  - `https://github.com/laipeng668/packages` 的 `frp-binary` 分支：`net/frp`
   - `https://github.com/laipeng668/packages` 的 `nginx` 分支：`net/nginx`
-  - `https://github.com/laipeng668/luci` 的 `frp-toml` 分支：`applications/luci-app-frpc`、`applications/luci-app-frps`
+  - `https://github.com/laipeng668/luci` 的 `frp` 分支：`applications/luci-app-frpc`、`applications/luci-app-frps`
   - `https://github.com/laipeng668/luci-app-gecoosac` 的 `main` 分支：`gecoosac`、`luci-app-gecoosac`
   - `https://github.com/gdy666/luci-app-lucky` 的 `main` 分支：`lucky`、`luci-app-lucky`
   - `https://github.com/laipeng668/luci-app-openlist2` 的 `main` 分支：`openlist2`、`luci-app-openlist2`
