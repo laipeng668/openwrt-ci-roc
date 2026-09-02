@@ -678,6 +678,9 @@ git_clone_package_repo() {
 }
 
 remove_builtin_packages() {
+  # Golang is shared by package builds, so refresh it for every selection.
+  rm -rf "$SDK_ROOT/feeds/packages/lang/golang"
+
   if selection_in luci-app-aria2; then
     rm -rf \
       "$SDK_ROOT/feeds/packages/net/aria2" \
@@ -687,7 +690,6 @@ remove_builtin_packages() {
   if selection_in frp luci-app-frpc luci-app-frps; then
     rm -rf \
       "$SDK_ROOT/feeds/packages/net/frp" \
-      "$SDK_ROOT/feeds/packages/lang/golang" \
       "$SDK_ROOT/feeds/luci/applications/luci-app-frpc" \
       "$SDK_ROOT/feeds/luci/applications/luci-app-frps"
   fi
@@ -704,13 +706,14 @@ remove_builtin_packages() {
 load_custom_packages() {
   mkdir -p "$SPARSE_ROOT"
 
+  git_sparse_clone "$GOLANG_REF" "$PACKAGES_REPO" feeds/packages lang/golang
+
   if selection_in luci-app-aria2; then
     git_sparse_clone "$ARIA2_REF" "$PACKAGES_REPO" feeds/packages net/aria2
     git_sparse_clone "$ARIANG_REF" "$PACKAGES_REPO" feeds/packages net/ariang
   fi
 
   if selection_in frp luci-app-frpc luci-app-frps; then
-    git_sparse_clone "$GOLANG_REF" "$PACKAGES_REPO" feeds/packages lang/golang
     git_sparse_clone "$FRP_REF" "$PACKAGES_REPO" feeds/packages net/frp
     git_sparse_clone "$FRP_LUCI_REF" "$LUCI_REPO" feeds/luci \
       applications/luci-app-frpc \

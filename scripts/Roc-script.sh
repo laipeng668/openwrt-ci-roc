@@ -191,6 +191,10 @@ git_sparse_clone() {
 }
 
 # Aria2 & nginx & Go & DDNS & frp & UPnP & Wol
+rm -rf feeds/packages/lang/golang
+git_sparse_clone master https://github.com/laipeng668/packages lang/golang
+mv package/golang feeds/packages/lang/golang
+
 if package_enabled luci-app-aria2 aria2; then
   rm -rf feeds/packages/net/aria2
   git_sparse_clone aria2 https://github.com/laipeng668/packages net/aria2
@@ -221,10 +225,7 @@ fi
 
 if package_enabled frp frpc frps luci-app-frpc luci-app-frps; then
   rm -rf \
-    feeds/packages/lang/golang \
     feeds/packages/net/frp
-  git_sparse_clone master https://github.com/laipeng668/packages lang/golang
-  mv package/golang feeds/packages/lang/golang
   git_sparse_clone frp-binary https://github.com/laipeng668/packages net/frp
   mv package/frp feeds/packages/net/frp
 fi
