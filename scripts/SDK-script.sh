@@ -718,6 +718,9 @@ load_custom_packages() {
     git_sparse_clone "$FRP_LUCI_REF" "$LUCI_REPO" feeds/luci \
       applications/luci-app-frpc \
       applications/luci-app-frps
+    sed -i '/^LUCI_EXTRA_DEPENDS:=/d' \
+      "$SDK_ROOT/feeds/luci/applications/luci-app-frpc/Makefile" \
+      "$SDK_ROOT/feeds/luci/applications/luci-app-frps/Makefile"
   fi
 
   selection_in nginx && git_sparse_clone "$NGINX_REF" "$PACKAGES_REPO" feeds/packages net/nginx

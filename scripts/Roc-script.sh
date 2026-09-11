@@ -243,6 +243,7 @@ if [ "${#frp_luci_paths[@]}" -gt 0 ]; then
   git_sparse_clone frp https://github.com/laipeng668/luci "${frp_luci_paths[@]}"
   for frp_luci_path in "${frp_luci_paths[@]}"; do
     mv "package/$(basename "$frp_luci_path")" "feeds/luci/$frp_luci_path"
+    sed -i '/^LUCI_EXTRA_DEPENDS:=/d' "feeds/luci/$frp_luci_path/Makefile"
   done
 fi
 
