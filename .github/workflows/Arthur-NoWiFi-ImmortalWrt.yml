@@ -1,0 +1,31 @@
+name: Arthur-NoWiFi-ImmortalWrt
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  # schedule:
+  #   - cron: "0 18 * * *"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  Build:
+    uses: ./.github/workflows/Build-OpenWrt.yml
+    permissions:
+      contents: write
+      actions: write
+    with:
+      repo_url: https://github.com/laipeng668/immortalwrt.git
+      repo_branch: openwrt-25.12
+      config_file: configs/Arthur.NoWiFi.config
+      firmware_tag: Arthur.NoWiFi
+      kernel_file: kernel-6.12
+      artifact_prefix: Arthur.NoWiFi
+      manifest_file: immortalwrt-qualcommax-ipq60xx.manifest
+      append_general_config: false
+      rename_qualcommax_to_nowifi: true
+      delete_old_workflows: true
+      release_summary: >-
+        这是开启全功能NSS的6.12内核固件，默认主题为Aurora；该固件在ImmortalWrt的基础上，添加了额外的软件包cpufreq、upnp、autoreboot、uhttpd、vlmcsd、usb-printer、dockerman、gecoosac、wireguard、openclash，并添加了若干工具，具体详见Arthur.NoWiFi.config。

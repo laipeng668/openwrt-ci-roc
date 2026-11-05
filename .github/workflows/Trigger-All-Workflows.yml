@@ -7,9 +7,19 @@ on:
         description: 运行 IPQ60XX-LibWrt
         required: false
         type: boolean
-        default: true
+        default: false
       ipq807x_libwrt:
         description: 运行 IPQ807X-LibWrt
+        required: false
+        type: boolean
+        default: false
+      arthur_nowifi_immortalwrt:
+        description: 运行 Arthur-NoWiFi-ImmortalWrt
+        required: false
+        type: boolean
+        default: true
+      rax3000m_immortalwrt:
+        description: 运行 RAX3000M-ImmortalWrt
         required: false
         type: boolean
         default: true
@@ -17,22 +27,22 @@ on:
         description: 运行 JDCloud-ImmortalWrt
         required: false
         type: boolean
-        default: true
+        default: false
       jdcloud_nowifi_immortalwrt:
         description: 运行 JDCloud-NoWiFi-ImmortalWrt
         required: false
         type: boolean
-        default: true
+        default: false
       x86_64_immortalwrt:
         description: 运行 x86-64-ImmortalWrt
         required: false
         type: boolean
-        default: true
+        default: false
       build_packages:
         description: 运行 Build-Packages
         required: false
         type: boolean
-        default: true
+        default: false
   schedule:
     - cron: "0 18 * * 5"
 
@@ -43,42 +53,56 @@ permissions:
 jobs:
 
     IPQ60XX-LibWrt:
-      if: ${{ github.event_name == 'schedule' || inputs.ipq60xx_libwrt }}
+      if: ${{ inputs.ipq60xx_libwrt }}
       uses: ./.github/workflows/IPQ60XX-LibWrt.yml
       permissions:
         contents: write
         actions: write
 
     IPQ807X-LibWrt:
-      if: ${{ github.event_name == 'schedule' || inputs.ipq807x_libwrt }}
+      if: ${{ inputs.ipq807x_libwrt }}
       uses: ./.github/workflows/IPQ807X-LibWrt.yml
       permissions:
         contents: write
         actions: write
 
+    Arthur-NoWiFi-ImmortalWrt:
+      if: ${{ github.event_name == 'schedule' || inputs.arthur_nowifi_immortalwrt }}
+      uses: ./.github/workflows/Arthur-NoWiFi-ImmortalWrt.yml
+      permissions:
+        contents: write
+        actions: write
+
+    RAX3000M-ImmortalWrt:
+      if: ${{ github.event_name == 'schedule' || inputs.rax3000m_immortalwrt }}
+      uses: ./.github/workflows/RAX3000M-ImmortalWrt.yml
+      permissions:
+        contents: write
+        actions: write
+
     JDCloud-ImmortalWrt:
-      if: ${{ github.event_name == 'schedule' || inputs.jdcloud_immortalwrt }}
+      if: ${{ inputs.jdcloud_immortalwrt }}
       uses: ./.github/workflows/JDCloud-ImmortalWrt.yml
       permissions:
         contents: write
         actions: write
 
     JDCloud-NoWiFi-ImmortalWrt:
-      if: ${{ github.event_name == 'schedule' || inputs.jdcloud_nowifi_immortalwrt }}
+      if: ${{ inputs.jdcloud_nowifi_immortalwrt }}
       uses: ./.github/workflows/JDCloud-NoWiFi-ImmortalWrt.yml
       permissions:
         contents: write
         actions: write
 
     x86-64-ImmortalWrt:
-      if: ${{ github.event_name == 'schedule' || inputs.x86_64_immortalwrt }}
+      if: ${{ inputs.x86_64_immortalwrt }}
       uses: ./.github/workflows/x86-64-ImmortalWrt.yml
       permissions:
         contents: write
         actions: write
 
     Build-Packages:
-      if: ${{ github.event_name == 'schedule' || inputs.build_packages }}
+      if: ${{ inputs.build_packages }}
       uses: ./.github/workflows/Build-Packages.yml
       permissions:
         contents: write

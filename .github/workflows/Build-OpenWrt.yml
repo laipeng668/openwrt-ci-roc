@@ -18,6 +18,10 @@ on:
       kernel_file:
         required: true
         type: string
+      kernel_path:
+        required: false
+        type: string
+        default: ""
       artifact_prefix:
         required: true
         type: string
@@ -27,7 +31,19 @@ on:
       release_summary:
         required: true
         type: string
+      append_general_config:
+        required: false
+        type: boolean
+        default: true
       remove_sqm_scripts_nss:
+        required: false
+        type: boolean
+        default: false
+      remove_luci_app_cpufreq:
+        required: false
+        type: boolean
+        default: false
+      patch_luci_dhcpv4_server:
         required: false
         type: boolean
         default: false
@@ -116,6 +132,7 @@ jobs:
         REPO_URL: ${{ inputs.repo_url }}
         REPO_BRANCH: ${{ inputs.repo_branch }}
         KERNEL_FILE: ${{ inputs.kernel_file }}
+        KERNEL_PATH: ${{ inputs.kernel_path }}
       run: |
         df -hT "$GITHUB_WORKSPACE"
         sudo mkdir -p /mnt/openwrt
@@ -129,23 +146,34 @@ jobs:
           echo "$VERSION_INFO"
           echo "EOF"
         } >> "$GITHUB_ENV"
-        VERSION_KERNEL="$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' "target/linux/generic/$KERNEL_FILE" | head -n 1 || true)"
+        KERNEL_SOURCE="${KERNEL_PATH:-target/linux/generic/$KERNEL_FILE}"
+        VERSION_KERNEL="$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' "$KERNEL_SOURCE" | head -n 1 || true)"
         echo "VERSION_KERNEL=${VERSION_KERNEL:-unknown}" >> "$GITHUB_ENV"
 
     - name: Disable Mainland Mirrors(屏蔽大陆下载源)
       run: |
         cd "$OPENWRT_PATH"
         mirror_file="scripts/projectsmirrors.json"
-        jq '
-          with_entries(
-            .value |= map(select(
-              test("^https?://(mirrors\\.tencent\\.com|mirrors\\.aliyun\\.com|mirrors\\.tuna\\.tsinghua\\.edu\\.cn|mirrors\\.ustc\\.edu\\.cn|mirror\\.iscas\\.ac\\.cn|mirror\\.nju\\.edu\\.cn)(/|$)")
-              | not
-            ))
-          )
-        ' "$mirror_file" > "$mirror_file.tmp"
-        mv "$mirror_file.tmp" "$mirror_file"
-        sed -i '/raw\.gitmirror\.com/d' scripts/download.pl
+        if [ -f "$mirror_file" ]; then
+          jq '
+            with_entries(
+              .value |= map(select(
+                test("^https?://(mirrors\\.tencent\\.com|mirrors\\.aliyun\\.com|mirrors\\.tuna\\.tsinghua\\.edu\\.cn|mirrors\\.ustc\\.edu\\.cn|mirror\\.iscas\\.ac\\.cn|mirror\\.nju\\.edu\\.cn)(/|$)")
+                | not
+              ))
+            )
+          ' "$mirror_file" > "$mirror_file.tmp"
+          mv "$mirror_file.tmp" "$mirror_file"
+        else
+          echo "Skip $mirror_file: not present in this source tree."
+        fi
+
+        download_script="scripts/download.pl"
+        if [ -f "$download_script" ]; then
+          sed -i '/raw\.gitmirror\.com/d' "$download_script"
+        else
+          echo "Skip $download_script: not present in this source tree."
+        fi
 
     - name: Generate Variables(生成变量)
       env:
@@ -205,11 +233,28 @@ jobs:
     - name: Download DL Package(下载DL软件包)
       env:
         CONFIG_FILE: ${{ inputs.config_file }}
+        APPEND_GENERAL_CONFIG: ${{ inputs.append_general_config }}
       run: |
-        cat "$GITHUB_WORKSPACE/$CONFIG_FILE" "$GITHUB_WORKSPACE/$GENERAL_CONFIG_FILE" > "$OPENWRT_PATH/.config"
+        if [ "$APPEND_GENERAL_CONFIG" = "true" ]; then
+          cat "$GITHUB_WORKSPACE/$CONFIG_FILE" "$GITHUB_WORKSPACE/$GENERAL_CONFIG_FILE" > "$OPENWRT_PATH/.config"
+        else
+          cp "$GITHUB_WORKSPACE/$CONFIG_FILE" "$OPENWRT_PATH/.config"
+        fi
         cd "$OPENWRT_PATH"
         if [ "${{ inputs.remove_sqm_scripts_nss }}" = "true" ]; then
           sed -i '/CONFIG_PACKAGE_sqm-scripts-nss=y/d' .config
+        fi
+        if [ "${{ inputs.remove_luci_app_cpufreq }}" = "true" ]; then
+          sed -i '/CONFIG_PACKAGE_luci-app-cpufreq=y/d' .config
+        fi
+        if [ "${{ inputs.patch_luci_dhcpv4_server }}" = "true" ]; then
+          dhcp_view="feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/interfaces.js"
+          dhcp_anchor="uci.set('dhcp', section_id, 'leasetime', '12h');"
+          if ! grep -Fq "$dhcp_anchor" "$dhcp_view"; then
+            echo "Expected DHCPv4 patch anchor not found in $dhcp_view" >&2
+            exit 1
+          fi
+          sed -i "/$dhcp_anchor/a\    uci.set('dhcp', section_id, 'dhcpv4', 'server');" "$dhcp_view"
         fi
         make defconfig
         make download -j"$(nproc)"

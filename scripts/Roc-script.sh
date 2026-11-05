@@ -79,11 +79,14 @@ git_sparse_clone master https://github.com/laipeng668/packages net/ddns-scripts
 mv -f package/ddns-scripts feeds/packages/net/ddns-scripts
 git_sparse_clone master https://github.com/laipeng668/luci applications/luci-app-ddns
 mv -f package/luci-app-ddns feeds/luci/applications/luci-app-ddns
-git_sparse_clone frp-binary-toml https://github.com/laipeng668/packages net/frp
+git_sparse_clone frp-binary https://github.com/laipeng668/packages net/frp
 mv -f package/frp feeds/packages/net/frp
-git_sparse_clone frp-toml https://github.com/laipeng668/luci applications/luci-app-frpc applications/luci-app-frps
+git_sparse_clone frp https://github.com/laipeng668/luci applications/luci-app-frpc applications/luci-app-frps
 mv -f package/luci-app-frpc feeds/luci/applications/luci-app-frpc
 mv -f package/luci-app-frps feeds/luci/applications/luci-app-frps
+sed -i '/^LUCI_EXTRA_DEPENDS:=/d' \
+  feeds/luci/applications/luci-app-frpc/Makefile \
+  feeds/luci/applications/luci-app-frps/Makefile
 git_sparse_clone master https://github.com/immortalwrt/packages net/miniupnpd
 mv -f package/miniupnpd feeds/packages/net/miniupnpd
 git_sparse_clone master https://github.com/immortalwrt/luci applications/luci-app-upnp

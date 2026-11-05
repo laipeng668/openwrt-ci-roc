@@ -1,0 +1,33 @@
+name: RAX3000M-ImmortalWrt
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  # schedule:
+  #   - cron: "0 18 * * *"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  Build:
+    uses: ./.github/workflows/Build-OpenWrt.yml
+    permissions:
+      contents: write
+      actions: write
+    with:
+      repo_url: https://github.com/laipeng668/immortalwrt.git
+      repo_branch: openwrt-23.05
+      config_file: configs/RAX3000M.config
+      firmware_tag: RAX3000M
+      kernel_file: kernel-5.15
+      kernel_path: include/kernel-5.15
+      artifact_prefix: RAX3000M
+      manifest_file: immortalwrt-mediatek-filogic.manifest
+      package_extension: ipk
+      remove_sqm_scripts_nss: true
+      remove_luci_app_cpufreq: true
+      patch_luci_dhcpv4_server: true
+      release_summary: >-
+        这是CMCC RAX3000M (custom U-Boot layout)的5.15内核固件，默认主题为Aurora；该固件在ImmortalWrt的基础上，添加了额外的软件包ddns、upnp、samba4、vlmcsd、aria2、autoreboot、uhttpd、frps、frpc、diskman、hd-idle、acme、passwall、wireguard、watchcat、3cat、fileassistant，并添加了若干工具，具体详见RAX3000M.config和General.config。
