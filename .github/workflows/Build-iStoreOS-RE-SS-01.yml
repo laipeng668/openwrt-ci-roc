@@ -1,0 +1,814 @@
+name: Build iStoreOS 25.12 for JDCloud RE-SS-01
+
+on:
+  workflow_dispatch:
+
+env:
+  DEVICE_TARGET: qualcommax/ipq60xx
+  DEVICE_PROFILE: jdcloud_re-ss-01
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出 iStoreOS 官方适配源码 (Checkout upstream iStoreOS source)
+        uses: actions/checkout@v4
+        with:
+          repository: natserver/istoreos
+          ref: sync/istoreos-25.12-20260910
+          fetch-depth: 1
+          path: .
+
+      - name: 规范化 vendored 包行尾 (Normalize vendored line endings)
+        run: |
+          # 【为什么必须有这一步】
+          # package/quickstart 与 package/luci-app-quickstart 是从 Windows 上
+          # 按文本方式拷进来的，所有文本文件都带 CRLF。而本仓库 .gitattributes
+          # 第一行是 `* -text`，git 不做任何换行转换，CRLF 会原样进固件：
+          #     /etc/init.d/quickstart 的 shebang 变成 "#!/bin/sh /etc/rc.common\r"
+          # 内核按 shebang exec 时去找 "/etc/rc.common\r" → "No such file or
+          # directory"，服务永远起不来 → 首页无数据、QuickStart 点开空白、
+          # iStore 商店打不开。这里统一转成 LF 并在末尾断言，防止再引入 CRLF。
+          find package/quickstart package/luci-app-quickstart -type f -print0 \
+            | xargs -0 -r sed -i 's/\r$//'
+          if grep -rlU $'\r' package/quickstart package/luci-app-quickstart; then
+            echo "::error::以上文件仍含 CR，固件内脚本将无法执行"
+            exit 1
+          fi
+          echo "行尾规范化完成，无残留 CR"
+
+          # 【po 语言目录布局守卫】
+          # luci.mk 用 $(notdir $(wildcard po/*)) 枚举语言，再用
+          # $(wildcard po/<lang>/*.po) 找翻译源。po/ 下的每个语言条目
+          # 必须是「真目录」或「能解析的软链」。
+          # run #32 踩过这个坑：package/luci-app-quickstart/po/zh_Hans
+          # 在库里以 mode 100644 的 5 字节文本文件存在（本该是软链 zh-cn），
+          # 于是 make 的 wildcard 匹配 po/zh_Hans/*.po 为空 → po2lmo 不执行
+          # → quickstart.zh-cn.lmo 缺失 → 左侧菜单显示英文。
+          # 这种文件在 Windows 上肉眼完全看不出来，所以在这里硬断言。
+          bad=0
+          for d in package/quickstart/po package/luci-app-quickstart/po; do
+            [ -d "$d" ] || continue
+            for e in "$d"/*; do
+              [ -e "$e" ] || continue
+              if [ ! -d "$e" ]; then
+                echo "::error::$e 不是目录也不是可解析的软链（多为被压平的软链），"
+                echo "::error::luci.mk 会因此匹配不到 po 源，翻译文件不会生成"
+                bad=1
+              fi
+            done
+          done
+          [ "$bad" -eq 0 ] || exit 1
+          echo "po 语言目录布局正常"
+
+      - name: 释放磁盘空间 (Free disk space)
+        run: |
+          echo "::group::清理前"
+          df -hT /
+          echo "::endgroup::"
+          sudo rm -rf \
+            /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/local/graalvm /usr/local/.ghcup \
+            /usr/local/share/powershell /usr/local/share/chromium \
+            /usr/local/lib/node_modules /opt/az /usr/share/swift || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean || true
+          echo "::group::清理后"
+          df -hT /
+          echo "::endgroup::"
+
+      # runner 自带 /swapfile 且已启用，必须换路径；失败也不应中断构建
+      - name: 创建交换分区 (Create swap, best-effort)
+        continue-on-error: true
+        run: |
+          set +e
+          SWAPFILE=/mnt/openwrt-swap
+          sudo rm -f "$SWAPFILE"
+          sudo fallocate -l 8G "$SWAPFILE" || sudo dd if=/dev/zero of="$SWAPFILE" bs=1M count=8192
+          sudo chmod 600 "$SWAPFILE"
+          sudo mkswap "$SWAPFILE"
+          sudo swapon "$SWAPFILE"
+          free -h
+          exit 0
+
+      - name: 安装编译依赖 (Install build dependencies)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses-dev libssl-dev pahole llvm python3 python3-pip \
+            python3-setuptools python3-dev rsync unzip zlib1g-dev file wget \
+            subversion patch vim-common quilt asciidoc autoconf automake \
+            libtool-bin ccache libltdl-dev libglib2.0-dev libgmp-dev \
+            libmpfr-dev libmpc-dev libelf-dev zstd
+          sudo apt-get clean
+
+      - name: 更新/安装 Feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          echo "::group::store feed（iStore 应用商店本体）是否已注册"
+          ./scripts/feeds list -n 2>/dev/null | grep -E '^(luci-app-store|taskd|luci-lib-taskd|luci-lib-xterm)$' || \
+            echo "警告：store feed 中的包未列出"
+          echo "::endgroup::"
+
+      - name: 生成 seed 配置 (Generate .config)
+        run: |
+          # 说明：
+          # iStoreOS 的「完全体界面」本体是 luci-app-quickstart（首页 + 网络向导），
+          # 而 luci-app-quickstart 的 LUCI_DEPENDS 是 "+quickstart +luci-app-store"。
+          # quickstart 二进制本身又依赖一长串工具包（shadow-* / smartmontools /
+          # parted / mdadm / ip-full / bash ...）。
+          # OpenWrt 的 defconfig 对「依赖不满足」的包是**【静默丢弃】**——
+          # 不报错、不提示，直接把符号从 .config 里抹掉。只要链上任一环缺失，
+          # 整个 quickstart 界面就会消失（这正是上一版固件没有首页的原因）。
+          # 因此这里把整条依赖链逐项显式列出，并在后面用独立的校验步骤卡住。
+          cat > .config <<'EOF'
+          CONFIG_TARGET_qualcommax=y
+          CONFIG_TARGET_qualcommax_ipq60xx=y
+          CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          CONFIG_KERNEL_BUILD_USER="natserver"
+          CONFIG_KERNEL_BUILD_DOMAIN="istoreos"
+
+          # ===============================================================
+          # A. iStoreOS 完整版界面栈（首页 / 网络向导 / 应用商店）
+          # ===============================================================
+          CONFIG_PACKAGE_luci-app-store=y
+          CONFIG_PACKAGE_quickstart=y
+          CONFIG_PACKAGE_luci-app-quickstart=y
+          CONFIG_PACKAGE_luci-i18n-quickstart-zh-cn=y
+          CONFIG_PACKAGE_taskd=y
+          CONFIG_PACKAGE_luci-lib-taskd=y
+          CONFIG_PACKAGE_luci-lib-xterm=y
+
+          # A2. quickstart 的硬依赖（缺一个 → 整条链被 defconfig 丢弃）
+          CONFIG_PACKAGE_shadow-utils=y
+          CONFIG_PACKAGE_shadow-useradd=y
+          CONFIG_PACKAGE_mount-utils=y
+          CONFIG_PACKAGE_block-mount=y
+          CONFIG_PACKAGE_lsblk=y
+          CONFIG_PACKAGE_e2fsprogs=y
+          CONFIG_PACKAGE_parted=y
+          CONFIG_PACKAGE_smartmontools=y
+          CONFIG_PACKAGE_smartd=y
+          CONFIG_PACKAGE_smartmontools-drivedb=y
+          CONFIG_PACKAGE_mdadm=y
+          CONFIG_PACKAGE_ip-full=y
+          CONFIG_PACKAGE_bash=y
+
+          # ===============================================================
+          # B. iStoreOS 外观（argon 主题 + 图标字体）
+          # ===============================================================
+          CONFIG_PACKAGE_luci-theme-argon=y
+          CONFIG_PACKAGE_luci-app-argon-config=y
+
+          # ===============================================================
+          # C. 基础 LuCI
+          # ===============================================================
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-app-firewall=y
+          CONFIG_PACKAGE_luci-app-package-manager=y
+          CONFIG_PACKAGE_luci-compat=y
+          # 注意：**不要** 选 luci-mod-dashboard。
+          # 它的 menu.d/luci-mod-dashboard.json 会注册一个 admin/dashboard 顶层项，
+          # 中文 po 把 "Dashboard" 译作「主页」——于是左侧菜单会多出一个「主页」，
+          # 和 quickstart 的「首页」并排、重复且点击无内容。
+          # 官方 iStoreOS 25.12.5 的 /usr/share/luci/menu.d 里根本没有
+          # luci-mod-dashboard.json，即官方就不装这个包。
+
+          # 终端（截图中「服务 > 终端」）
+          CONFIG_PACKAGE_ttyd=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
+
+          # ===============================================================
+          # D. 存储与文件系统（把 2GB 大分区用起来）
+          # ===============================================================
+          CONFIG_PACKAGE_blkid=y
+          CONFIG_PACKAGE_kmod-usb-storage=y
+          CONFIG_PACKAGE_kmod-usb-storage-uas=y
+          CONFIG_PACKAGE_usb-storage-utils=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          CONFIG_PACKAGE_kmod-fs-exfat=y
+          CONFIG_PACKAGE_kmod-fs-f2fs=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-fs-ntfs3=y
+          CONFIG_PACKAGE_mkf2fs=y
+          CONFIG_PACKAGE_f2fsck=y
+          CONFIG_PACKAGE_ntfs3-mount=y
+          CONFIG_PACKAGE_luci-app-hd-idle=y
+
+          # ===============================================================
+          # E. 存储服务（截图中「存储服务」区块）
+          # ===============================================================
+          CONFIG_PACKAGE_luci-app-samba4=y
+          CONFIG_PACKAGE_samba4-server=y
+          CONFIG_PACKAGE_samba4-libs=y
+          CONFIG_PACKAGE_luci-app-ksmbd=y
+          CONFIG_PACKAGE_ksmbd-server=y
+          CONFIG_PACKAGE_webdavfs=y
+          CONFIG_PACKAGE_luci-app-nfs=y
+          CONFIG_PACKAGE_luci-app-cifs-mount=y
+          CONFIG_PACKAGE_luci-app-minidlna=y
+          CONFIG_PACKAGE_minidlna=y
+
+          # ===============================================================
+          # F. 服务菜单（截图里点开「服务」应有的常用项）
+          # ===============================================================
+          CONFIG_PACKAGE_luci-app-wol=y
+          CONFIG_PACKAGE_luci-app-upnp=y
+          CONFIG_PACKAGE_luci-app-ddns=y
+          CONFIG_PACKAGE_luci-app-dockerman=y
+          CONFIG_PACKAGE_docker=y
+          CONFIG_PACKAGE_dockerd=y
+          CONFIG_PACKAGE_luci-app-filetransfer=y
+          CONFIG_PACKAGE_luci-lib-fs=y
+          CONFIG_PACKAGE_luci-app-tn-netports=y
+
+          # ===============================================================
+          # G. 常用命令行工具（quickstart / 运维都要用）
+          # ===============================================================
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_tar=y
+          CONFIG_PACKAGE_gzip=y
+          CONFIG_PACKAGE_xz-utils=y
+          CONFIG_PACKAGE_unzip=y
+          CONFIG_PACKAGE_ca-bundle=y
+
+          # ===============================================================
+          # H. 中文语言包（界面汉化）
+          # ===============================================================
+          CONFIG_LUCI_LANG_zh_Hans=y
+          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-samba4-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-ksmbd-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-dockerman-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-ddns-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-wol-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-minidlna-zh-cn=y
+          CONFIG_PACKAGE_luci-i18n-argon-config-zh-cn=y
+
+          # ===============================================================
+          # I. dae/daed（eBPF 透明代理）底层支持
+          # daed 本体与 luci-app-daed 不编入固件（用户选择刷机后自装），
+          # 这里只保证内核 BTF / XDP / BPF 与运行时依赖就位。
+          # ===============================================================
+          CONFIG_DEVEL=y
+          CONFIG_BPF_TOOLCHAIN_HOST=y
+          CONFIG_KERNEL_DEBUG_INFO=y
+          CONFIG_KERNEL_DEBUG_INFO_BTF=y
+          CONFIG_KERNEL_CGROUPS=y
+          CONFIG_KERNEL_CGROUP_BPF=y
+          CONFIG_KERNEL_BPF_EVENTS=y
+          CONFIG_KERNEL_XDP_SOCKETS=y
+          CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
+          CONFIG_PACKAGE_kmod-sched-core=y
+          CONFIG_PACKAGE_kmod-sched-bpf=y
+          CONFIG_PACKAGE_kmod-veth=y
+          CONFIG_PACKAGE_kmod-dummy=y
+          CONFIG_PACKAGE_v2ray-geoip=y
+          CONFIG_PACKAGE_v2ray-geosite=y
+          CONFIG_PACKAGE_zoneinfo-asia=y
+
+          # ===============================================================
+          # J. TUN/TAP 虚拟网卡（TUN 模式代理的前置）
+          # Tailscale / sing-box(tun) / OpenClash / passwall 等都要先有 /dev/net/tun。
+          # 本包把 tun 编成模块 tun.ko 放进 rootfs（安装后约 80 KB，占 2 GB 分区
+          # 约 0.004%），**不进 12 MiB 内核分区**，因此内核镜像体积不变。
+          # 注意：外部预编译的 kmod 一律不可用（内核哈希必须与本固件一致），
+          # 所以只能像这样编进固件，没有「下载安装包单独装」这条路。
+          # ===============================================================
+          CONFIG_PACKAGE_kmod-tun=y
+
+          # ===============================================================
+          # K. Nikki（Mihomo 内核）透明代理依赖
+          # Nikki 的 .run 安装包自带 mihomo 内核与 nikki / luci 本体，但**不含**
+          # 下面这些依赖；apk add 会去远端源补齐，而自定义内核的 kmod 在官方源里
+          # 对不上（内核哈希不同），于是安装直接失败。
+          # 所以只能编进固件：
+          #   kmod-inet-diag  → ss / 连接诊断（Nikki 读取连接状态）
+          #   kmod-nft-socket → nftables socket 匹配（分流规则）
+          #   kmod-nft-tproxy → nftables tproxy 重定向（TProxy 模式）
+          #   yq              → 读写 mixin.yaml（Go 静态二进制，无运行期依赖）
+          # kmod-nf-socket / kmod-nf-tproxy 是上面两个的硬依赖，显式列出，
+          # 避免 defconfig 因「依赖不满足」把它们静默丢弃。
+          # ===============================================================
+          CONFIG_PACKAGE_kmod-inet-diag=y
+          CONFIG_PACKAGE_kmod-nft-socket=y
+          CONFIG_PACKAGE_kmod-nft-tproxy=y
+          CONFIG_PACKAGE_kmod-nf-socket=y
+          CONFIG_PACKAGE_kmod-nf-tproxy=y
+          CONFIG_PACKAGE_yq=y
+          EOF
+
+      - name: 展开默认配置并校验机型 (defconfig + verify)
+        run: |
+          make defconfig
+          echo "::group::最终生效的机型相关配置"
+          grep -E '^CONFIG_TARGET_(BOARD|SUBTARGET|PROFILE)|DEVICE_jdcloud' .config || true
+          echo "::endgroup::"
+          # 机型没被选中时立即失败，避免浪费数小时编译出错误固件
+          if ! grep -q '^CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y' .config; then
+            echo "::error::机型 jdcloud_re-ss-01 未被选中，请检查设备定义与配置符号名"
+            echo "可用的 ipq60xx 机型符号："
+            grep -o 'TARGET_qualcommax_ipq60xx_DEVICE_[a-z0-9_.-]*' tmp/.config-target.in | sort -u || true
+            exit 1
+          fi
+          echo "机型已正确选中: jdcloud_re-ss-01"
+
+      - name: 依赖闭环校验 (Verify full UI stack survived defconfig)
+        run: |
+          # defconfig 对依赖不满足的包是静默丢弃的。这里逐项校验，
+          # 缺哪个就报出来，避免又编出一个「没有首页」的固件。
+          #
+          # 注意：这段刻意不用 shell 函数 + 命令替换（$(...)）收集结果——
+          # 那样会把 ::group:: 之类的日志行一起吸进变量，造成误报。
+          # 改为写临时文件，再读文件判断。
+          HARD="
+          luci-app-store
+          quickstart
+          luci-app-quickstart
+          luci-i18n-quickstart-zh-cn
+          taskd
+          luci-lib-taskd
+          luci-lib-xterm
+          shadow-utils
+          shadow-useradd
+          mount-utils
+          block-mount
+          lsblk
+          e2fsprogs
+          parted
+          smartmontools
+          mdadm
+          ip-full
+          bash
+          luci
+          luci-app-firewall
+          ttyd
+          luci-app-ttyd
+          luci-theme-argon
+          luci-app-samba4
+          "
+          SOFT="
+          luci-app-ksmbd
+          luci-app-wol
+          luci-app-upnp
+          luci-app-ddns
+          luci-app-dockerman
+          luci-app-filetransfer
+          luci-app-nfs
+          luci-app-cifs-mount
+          luci-app-tn-netports
+          luci-app-argon-config
+          luci-app-hd-idle
+          luci-app-package-manager
+          webdavfs
+          ksmbd-server
+          samba4-server
+          minidlna
+          "
+          NIKKI="
+          kmod-inet-diag
+          kmod-nft-socket
+          kmod-nft-tproxy
+          yq
+          "
+
+          : > /tmp/missing_hard
+          : > /tmp/missing_nikki
+          : > /tmp/missing_soft
+
+          check_group() {
+            label="$1"; file="$2"; shift 2
+            echo "::group::${label}"
+            for p in "$@"; do
+              if grep -q "^CONFIG_PACKAGE_${p}=y" .config; then
+                echo "  ok      CONFIG_PACKAGE_${p}"
+              elif grep -q "^CONFIG_PACKAGE_${p}=" .config; then
+                echo "  MISSING CONFIG_PACKAGE_${p}（被 defconfig 丢弃）"
+                echo "$p" >> "$file"
+              else
+                echo "  MISSING CONFIG_PACKAGE_${p}（符号不存在，可能包名有误）"
+                echo "$p" >> "$file"
+              fi
+            done
+            echo "::endgroup::"
+          }
+
+          check_group "关键界面栈（缺失即失败）" /tmp/missing_hard $HARD
+          check_group "可选增强组件（缺失仅警告）" /tmp/missing_soft $SOFT
+          check_group "Nikki 依赖（缺失即失败）" /tmp/missing_nikki $NIKKI
+
+          WARN_ONLY=$(tr '\n' ' ' < /tmp/missing_soft | sed 's/  */ /g;s/^ //;s/ $//')
+          HARD_FAIL=$(tr '\n' ' ' < /tmp/missing_hard | sed 's/  */ /g;s/^ //;s/ $//')
+
+          if [ -n "$WARN_ONLY" ]; then
+            echo "::warning::以下可选组件未进入固件: $WARN_ONLY"
+          fi
+
+          if [ -n "$HARD_FAIL" ]; then
+            echo "::error::关键界面栈在 defconfig 后丢失，完整版界面无法成型: $HARD_FAIL"
+            echo "::group::诊断：这些包是否被 feeds 收录"
+            for p in $HARD_FAIL; do
+              echo "--- $p"
+              ./scripts/feeds list -n 2>/dev/null | grep -x "$p" >/dev/null && echo "    (feeds 中有此包)" || echo "    (feeds 中未找到)"
+            done
+            echo "::endgroup::"
+            exit 1
+          fi
+          NIKKI_FAIL=$(tr '\n' ' ' < /tmp/missing_nikki | sed 's/  */ /g;s/^ //;s/ $//')
+          if [ -n "$NIKKI_FAIL" ]; then
+            echo "::error::Nikki 依赖在 defconfig 后丢失（这些包不在 feeds 或包名有误）: $NIKKI_FAIL"
+            exit 1
+          fi
+
+          echo "关键界面栈全部就位，完整版界面可以成型"
+          echo "Nikki 依赖全部就位（kmod-inet-diag / kmod-nft-socket / kmod-nft-tproxy / yq）"
+
+      - name: 预下载源码包 (make download)
+        run: |
+          set -o pipefail
+          make download -j8 || make download -j1 V=s
+          # 清掉下载不完整的文件后重试一次
+          find dl -size -1024c -type f -exec ls -l {} \; -exec rm -f {} \;
+          make download -j8 || true
+
+      - name: 编译固件 (Build firmware)
+        run: |
+          set -o pipefail
+          echo "开始编译 JDCloud RE-SS-01, 并行度 $(nproc)"
+          if ! make -j"$(nproc)" 2>&1 | tee build.log; then
+            echo "::warning::并行编译失败，回退单线程 V=s 重试以获取完整错误信息"
+            make -j1 V=s 2>&1 | tee -a build.log
+          fi
+
+      - name: 检查产物 (Check artifacts)
+        run: |
+          OUT=bin/targets/qualcommax/ipq60xx
+          echo "::group::产物列表"
+          ls -lh "$OUT" 2>/dev/null || echo "目录不存在"
+          echo "::endgroup::"
+          if ! ls "$OUT"/*jdcloud*sysupgrade* >/dev/null 2>&1; then
+            echo "::error::未生成 jdcloud sysupgrade 固件"
+            exit 1
+          fi
+          echo "固件生成成功："
+          ls -1 "$OUT"/*jdcloud*
+
+          MANIFEST=$(ls "$OUT"/*jdcloud*.manifest 2>/dev/null | head -1)
+          if [ -z "$MANIFEST" ]; then
+            echo "::error::未找到 manifest 文件，无法校验界面组件"
+            exit 1
+          fi
+          echo "::group::固件包清单中的界面组件"
+          grep -E "quickstart|store|taskd|samba|ksmbd|webdav|dockerman|argon|minidlna" "$MANIFEST" || echo "  （无命中）"
+          echo "::endgroup::"
+
+          # 固件必须真的含有首页组件，否则这次构建算白干
+          if ! grep -q '^quickstart ' "$MANIFEST"; then
+            echo "::error::manifest 中没有 quickstart，首页/网络向导无法工作"
+            exit 1
+          fi
+          if ! grep -q '^luci-app-quickstart ' "$MANIFEST"; then
+            echo "::error::manifest 中没有 luci-app-quickstart，LuCI 中不会出现首页/网络向导"
+            exit 1
+          fi
+          echo "界面组件校验通过：quickstart + luci-app-quickstart 均已入固件"
+
+          # TUN 支持必须真的进固件：显式点名，缺了就失败，避免静默漏掉
+          if ! grep -q '^kmod-tun ' "$MANIFEST"; then
+            echo "::error::manifest 中没有 kmod-tun，TUN 模式代理（Tailscale / sing-box tun / OpenClash / passwall）将无法使用"
+            exit 1
+          fi
+          echo "TUN 支持校验通过：kmod-tun 已入固件"
+
+          # Nikki 依赖必须齐全：缺任一 kmod，用户的 .run 包都会因依赖不满足装不上
+          for pkg in kmod-inet-diag kmod-nft-socket kmod-nft-tproxy yq; do
+            if ! grep -q "^${pkg} " "$MANIFEST"; then
+              echo "::error::manifest 中没有 ${pkg}，Nikki 的 .run 安装包将无法安装"
+              exit 1
+            fi
+          done
+          echo "Nikki 依赖校验通过：kmod-inet-diag / kmod-nft-socket / kmod-nft-tproxy / yq 均已入固件"
+
+      - name: 校验服务自启 (Verify services are enabled at first boot)
+        run: |
+          # manifest 只证明「包被装了」，不证明「服务能跑起来」。
+          # luci-app-quickstart 的菜单与页面由 luasrc/controller/quickstart.lua
+          # 用 entry({"admin","quickstart"}, template("quickstart/home"), _("QuickStart"), 1)
+          # 注册；模板渲染出来只有一个空的 <div id="app">，界面数据全靠
+          # quickstart 守护进程经 istore_backend 反代供数。
+          # 守护进程没跑 / 反代连不上 → 菜单在、点进去 502。所以这里断言：
+          #   1) quickstart 二进制 / init 脚本 / 前端资源都在 rootfs 里
+          #   2) 我们补的 99_istoreos_services 在（负责开机 enable + start）
+          #   3) init 脚本行尾是 LF —— CRLF 会让 shebang 变成
+          #      "#!/bin/sh /etc/rc.common\r"，内核 exec 直接失败
+          #   4) 反代与菜单项都正确（见下面两个 ::group::）
+          #
+          # 实现要点（踩过的坑）：
+          #  - 不要真正解包。unsquashfs 解包在同一目录重跑会
+          #    "failed to make directory ... File exists" 直接 FATAL。
+          #  - 改用 unsquashfs -l 只读目录表，快且无副作用。
+          #  - 清单读取不可靠时（条目数/init.d 数异常）只警告不失败，
+          #    避免工具怪癖把好固件卡死；确有文件缺失才 exit 1。
+          OUT=bin/targets/qualcommax/ipq60xx
+          IMG=$(ls "$OUT"/*jdcloud*squashfs-sysupgrade.bin 2>/dev/null | head -1)
+          if [ -z "$IMG" ]; then
+            echo "::error::找不到 sysupgrade 镜像"
+            exit 1
+          fi
+          echo "镜像: $IMG ($(stat -c%s "$IMG") 字节)"
+
+          sudo apt-get update -qq >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq squashfs-tools >/dev/null 2>&1 || true
+          if ! command -v unsquashfs >/dev/null 2>&1; then
+            echo "::warning::runner 上没有 unsquashfs，跳过自启校验"
+            exit 0
+          fi
+
+          WORK=$(mktemp -d)
+          SQ="$IMG"
+          # 镜像前段是 kernel，rootfs(squashfs) 在后面，按魔数定位
+          if ! unsquashfs -s "$SQ" >/dev/null 2>&1; then
+            OFFSET=$(grep -abo 'hsqs' "$IMG" | head -1 | cut -d: -f1)
+            echo "squashfs 偏移: ${OFFSET:-未找到}"
+            if [ -n "$OFFSET" ]; then
+              # 用 tail 截取，避免 dd bs=1 逐字节读 100MB 慢得离谱
+              tail -c +$((OFFSET + 1)) "$IMG" > "$WORK/root.sqsh"
+              SQ="$WORK/root.sqsh"
+            fi
+          fi
+
+          LIST="$WORK/list.txt"
+          unsquashfs -l "$SQ" 2>/dev/null \
+            | sed 's,^squashfs-root/*,,' \
+            | awk 'NF{print $1}' | sort -u > "$LIST" || true
+          N=$(wc -l < "$LIST")
+          INITD=$(grep -c '^etc/init.d/' "$LIST" || true)
+          echo "rootfs 条目数: $N ; init.d 脚本数: $INITD"
+
+          if [ "$N" -lt 100 ] || [ "$INITD" -lt 5 ]; then
+            echo "::warning::squashfs 清单读取不可靠（条目 $N / init.d $INITD），跳过自启校验"
+            exit 0
+          fi
+
+          echo "::group::关键文件检查"
+          FAIL=0
+          for f in usr/sbin/quickstart \
+                   etc/init.d/quickstart \
+                   etc/init.d/tasks \
+                   etc/uci-defaults/99_istoreos_services \
+                   etc/uci-defaults/98_luci_default_lang \
+                   usr/lib/lua/luci/controller/quickstart.lua \
+                   www/luci-static/quickstart/index.js \
+                   www/luci-static/quickstart/vendor.js; do
+            if grep -qxF "$f" "$LIST"; then
+              echo "  ok      /$f"
+            else
+              echo "  MISSING /$f"
+              FAIL=1
+            fi
+          done
+          echo "::endgroup::"
+
+          echo "::group::rootfs 内 uci-defaults"
+          grep '^etc/uci-defaults/' "$LIST" || echo "  （无）"
+          echo "::endgroup::"
+
+          # 中文界面链路：quickstart 的 SPA 是「以中文为源语言」的——
+          #   i18n/zh-cn.json 是空壳，翻译表为空时回退到 key（key 就是中文原文），
+          #   只有 i18n/en.json 存着「中文 key -> 英文」对照表。
+          # 另外 luci-app-quickstart 控制器的菜单项是 _("QuickStart") 这类
+          # 英文 msgid，靠 po/zh-cn/quickstart.po 翻成「首页 / 网络向导 /
+          # 磁盘阵列 / 网口配置」——没有 .lmo 左侧菜单就是英文。
+          #
+          # 这里改成硬失败（原来是软警告）。因为 run #32 的产物就踩过这个坑：
+          #   po/zh_Hans 本是软链，却以 mode 100644 的 5 字节文本文件存进了库，
+          #   luci.mk 的 $(notdir $(wildcard po/*)) 于是枚举出 zh-cn 与 zh_Hans，
+          #   别名把 zh_Hans 映射成同一个包名并「后定义覆盖」，最终生效的规则去
+          #   匹配 po/zh_Hans/*.po —— 那是个文件不是目录，匹配为空 →
+          #   po2lmo 压根没执行 → .lmo 缺失，而同一规则里的 uci-defaults
+          #   是无条件写的，所以「包装上了、语言名注册了、翻译文件没有」。
+          # 静默放过就会让用户看到英文菜单，所以必须拦住发版。
+          echo "::group::中文语言目录（硬检查）"
+          if grep -qE '^usr/lib/lua/luci/i18n/quickstart\.(zh-cn|zh_Hans)\.lmo$' "$LIST"; then
+            grep -E '^usr/lib/lua/luci/i18n/quickstart\.' "$LIST" | sed 's/^/  ok      \//'
+          else
+            echo "  MISSING /usr/lib/lua/luci/i18n/quickstart.zh-cn.lmo"
+            echo "          （左侧菜单会显示 QuickStart / NetworkGuide 等英文）"
+            FAIL=1
+          fi
+          echo "  -- 该目录实际内容 --"
+          grep '^usr/lib/lua/luci/i18n/' "$LIST" | sed 's/^/    /' || echo "    （无）"
+          echo "::endgroup::"
+
+          echo "::group::默认语言落点（软检查）"
+          if unsquashfs -cat "$SQ" etc/config/luci 2>/dev/null | grep -qE "^\s*option lang '(zh-cn|auto)'"; then
+            echo "  ok      /etc/config/luci 里有 lang 配置"
+          else
+            echo "  ??      /etc/config/luci 未读到 lang（首次启动由 uci-defaults 补）"
+          fi
+          echo "::endgroup::"
+
+          echo "::group::init 脚本行尾检查（必须为 LF）"
+          CRLF_HIT=0
+          for f in etc/init.d/quickstart etc/init.d/startdhns; do
+            if unsquashfs -cat "$SQ" "$f" > "$WORK/init.out" 2>/dev/null \
+               && [ -s "$WORK/init.out" ]; then
+              if grep -qU $'\r' "$WORK/init.out"; then
+                echo "  CRLF    /$f   <-- 内核无法 exec，服务起不来"
+                CRLF_HIT=1
+              else
+                echo "  ok      /$f"
+              fi
+            else
+              echo "  ??      无法读取 /$f，跳过行尾检查"
+            fi
+          done
+          echo "::endgroup::"
+
+          if [ "$CRLF_HIT" -ne 0 ]; then
+            echo "::error::固件内 init 脚本含 CRLF，刷机后 quickstart 服务不会启动"
+            exit 1
+          fi
+
+          # ---------------------------------------------------------------
+          # 反代控制器 / 菜单项检查
+          #
+          # 用户实测现象（rel-20260913-1339 之后）：
+          #   左侧菜单多出一个「主页」（其实是 luci-mod-dashboard 的 Dashboard），
+          #   且「首页」「网络向导」点开报 500 Internal Server Error。
+          # 根因：
+          #   a) luci-mod-dashboard 的 menu.d 注册了 admin/dashboard，
+          #      中文 po 把 "Dashboard" 译作「主页」→ 与「首页」重复。
+          #      官方 iStoreOS 根本不装这个包（其 menu.d 里没有这个 json）。
+          #   b) istore_backend.lua 连 quickstart 守护进程的那段写错了：
+          #      nixio 的 Socket:connect 原型是 connect(host, port)，
+          #      对 AF_UNIX 也必须给 port(0)；上一版少传 port 直接抛 Lua 错，
+          #      控制器整体 500 → 前端显示「网络异常：500 Internal Server Error」。
+          #      现在改成：先连 TCP 127.0.0.1:3038（官方验证过的路径），
+          #      失败再退 Unix socket，全部 pcall 包裹。
+          #   c) quickstart.init 需要先 mkdir /var/run/quickstart，
+          #      否则二进制 listen unix 失败后退出、procd 反复 respawn。
+          # ---------------------------------------------------------------
+          echo "::group::反代控制器与菜单项（硬检查）"
+          if grep -qxF 'usr/lib/lua/luci/controller/istore_backend.lua' "$LIST"; then
+            echo "  ok      /usr/lib/lua/luci/controller/istore_backend.lua"
+            if unsquashfs -cat "$SQ" usr/lib/lua/luci/controller/istore_backend.lua \
+                 > "$WORK/backend.lua" 2>/dev/null && [ -s "$WORK/backend.lua" ]; then
+              if grep -q 'connect_backend' "$WORK/backend.lua" \
+                 && grep -q 'pcall(nixio.connect, "127.0.0.1"' "$WORK/backend.lua" \
+                 && grep -q '/var/run/quickstart/local.sock' "$WORK/backend.lua"; then
+                echo "  ok      反代含 tcp(127.0.0.1:3038) + unix(local.sock) 双通道，且连接全部 pcall 包裹"
+              else
+                echo "  BAD     反代缺少双通道/pcall 保护（点开会报 500）"
+                FAIL=1
+              fi
+            else
+              echo "  ??      无法读取 istore_backend.lua，跳过内容检查"
+            fi
+          else
+            echo "  MISSING /usr/lib/lua/luci/controller/istore_backend.lua"
+            FAIL=1
+          fi
+
+          if grep -qxF 'usr/share/luci/menu.d/luci-mod-dashboard.json' "$LIST"; then
+            echo "  BAD     /usr/share/luci/menu.d/luci-mod-dashboard.json 仍在 —— 左侧菜单会多出「主页」"
+            FAIL=1
+          else
+            echo "  ok      没有 luci-mod-dashboard.json（不会多出「主页」）"
+          fi
+          if grep -qxF 'usr/share/luci/menu.d/luci-app-quickstart.json' "$LIST"; then
+            echo "  note    /usr/share/luci/menu.d/luci-app-quickstart.json 存在（其裸 title 会盖掉 _() 翻译）"
+          else
+            echo "  ok      没有 luci-app-quickstart.json（菜单标题走 controller 的 _() 翻译 → 首页/网络向导）"
+          fi
+
+          if unsquashfs -cat "$SQ" etc/init.d/quickstart > "$WORK/qs.init" 2>/dev/null \
+             && [ -s "$WORK/qs.init" ]; then
+            if grep -q 'mkdir -p /var/run/quickstart' "$WORK/qs.init"; then
+              echo "  ok      quickstart.init 会先建 /var/run/quickstart"
+            else
+              echo "  BAD     quickstart.init 未建 /var/run/quickstart（unix listen 会失败，服务起不来）"
+              FAIL=1
+            fi
+          else
+            echo "  ??      无法读取 quickstart.init，跳过内容检查"
+          fi
+          echo "::endgroup::"
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo "::error::rootfs 内缺少首页运行所需文件 / 中文翻译 / 反代双通道（刷机后界面点不开、报 500 或显示英文）"
+            exit 1
+          fi
+          echo "服务自启校验通过：二进制 / init 脚本 / 启用脚本 / 前端资源齐全，行尾为 LF，中文翻译文件在位，反代 tcp+unix 双通道正确，菜单无重复「主页」"
+
+      - name: 上传固件 (Upload firmware)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: istoreos-jdcloud-re-ss-01
+          path: |
+            bin/targets/qualcommax/ipq60xx/*.bin
+            bin/targets/qualcommax/ipq60xx/*.manifest
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: 上传完整日志 (Upload build log)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: 生成 GMT+8 时间戳 (Generate release timestamp)
+        id: ts
+        if: success()
+        run: |
+          echo "tag=rel-$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+          echo "human=$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')" >> "$GITHUB_OUTPUT"
+
+      - name: 生成发布说明 (Generate release notes)
+        if: success()
+        run: |
+          # Release 说明由「提交信息里的两个标记块」自动生成，不需要人工维护：
+          #   <!-- CHANGELOG-START --> … <!-- CHANGELOG-END -->       本次改了什么
+          #   <!-- UPSTREAM-LOG-START --> … <!-- UPSTREAM-LOG-END -->  官方（上游 iStoreOS）更新了什么
+          # 每日同步脚本每次同步都会写入 UPSTREAM-LOG 块（列出上游自上次基线以来
+          # 每个提交的 sha / 日期 / 标题 / 涉及文件数，以及改动文件清单），
+          # 所以**每一次同步构建的发布页都会写明官方更新了什么**。
+          # 纯本地适配的提交，只要在提交信息里写 CHANGELOG 块即可。
+          MSG=$(git log -1 --pretty=%B)
+          pick() {
+            awk -v s="$1" -v e="$2" 'index($0,s){f=1;next} index($0,e){f=0} f' <<< "$MSG"
+          }
+          CHANGELOG=$(pick '<!-- CHANGELOG-START -->' '<!-- CHANGELOG-END -->')
+          UPSTREAM=$(pick '<!-- UPSTREAM-LOG-START -->' '<!-- UPSTREAM-LOG-END -->')
+          # 守卫：产物不存在就让这一步失败
+          ls bin/targets/qualcommax/ipq60xx/*jdcloud*squashfs-sysupgrade.bin >/dev/null
+
+          {
+            echo "iStoreOS 完整版 for 京东云亚瑟 AX1800 Pro（RE-SS-01, IPQ6000, eMMC）"
+            echo
+            echo "### 本次更新"
+            echo
+            if [ -n "$CHANGELOG" ]; then
+              printf '%s\n' "$CHANGELOG"
+            else
+              echo "- 本地适配构建（提交信息未提供变更清单）"
+            fi
+            echo
+            echo "### 官方 iStoreOS 更新内容"
+            echo
+            if [ -n "$UPSTREAM" ]; then
+              printf '%s\n' "$UPSTREAM"
+            else
+              echo "本次构建未同步上游新提交（纯本地适配改动），上游代码无变化。"
+            fi
+            echo
+            echo "### 固件包含"
+            echo
+            echo "- TUN/TAP 虚拟网卡（kmod-tun）：TUN 模式代理可直接使用"
+            echo "- daed 底层内核支持（BTF / XDP / BPF），daed 本体刷机后自行安装"
+            echo "- Nikki（Mihomo）透明代理依赖：kmod-inet-diag / kmod-nft-socket / kmod-nft-tproxy + yq"
+            echo
+            echo "### 刷机"
+            echo
+            echo "先刷 HLOS12M 双启动 GPT，再经 U-Boot Web \`/big.html\` 端点刷 factory.bin；进入系统后用 sysupgrade.bin 升级。"
+          } > release-body.md
+          echo "::group::发布说明预览"
+          cat release-body.md
+          echo "::endgroup::"
+
+      - name: 发布 Release (Publish release on build success)
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ts.outputs.tag }}
+          # 必须显式指定，否则 GitHub 会把 tag 打到「仓库默认分支的 HEAD」上。
+          # 本工作流跑在 sync/istoreos-25.12-* 上；该分支目前就是默认分支，
+          # 所以暂时不会出错 —— 但这行必须永远保留：同步脚本将来一旦换成分支名
+          # （如 sync/istoreos-25.12-<新日期>），默认分支就可能落后于构建分支，
+          # 那时 tag 会指向陈旧提交，按 tag 检出源码复现将拿到没有本次修复的代码。
+          target_commitish: ${{ github.sha }}
+          name: 京东云亚瑟 AX1800 Pro (RE-SS-01) 固件 ${{ steps.ts.outputs.human }}
+          files: |
+            bin/targets/qualcommax/ipq60xx/*.bin
+            bin/targets/qualcommax/ipq60xx/*.manifest
+          # 正文由上一步「生成发布说明」产出（含 本次更新 / 官方 iStoreOS 更新内容）
+          body_path: release-body.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
