@@ -67,6 +67,39 @@ jobs:
           [ "$bad" -eq 0 ] || exit 1
           echo "po 语言目录布局正常"
 
+      - name: 写入首次启动默认设置 (Apply first-boot defaults)
+        env:
+          DEFAULT_WIFI_PASSWORD: ${{ secrets.DEFAULT_WIFI_PASSWORD }}
+          DEFAULT_ROOT_PASSWORD: ${{ secrets.DEFAULT_ROOT_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${DEFAULT_WIFI_PASSWORD:-}" ] || [ -z "${DEFAULT_ROOT_PASSWORD:-}" ]; then
+            echo "::error::请先在仓库 Settings → Secrets and variables → Actions 中设置 DEFAULT_WIFI_PASSWORD 和 DEFAULT_ROOT_PASSWORD"
+            exit 1
+          fi
+          WIFI_B64=$(printf '%s' "$DEFAULT_WIFI_PASSWORD" | base64 -w0)
+          ROOT_HASH=$(openssl passwd -6 "$DEFAULT_ROOT_PASSWORD")
+          mkdir -p files/etc/uci-defaults
+          DEFAULTS=files/etc/uci-defaults/99-ax1800-pro-defaults
+          printf "#!/bin/sh\nWIFI_PASSWORD_B64='%s'\nROOT_HASH='%s'\n" "$WIFI_B64" "$ROOT_HASH" > "$DEFAULTS"
+          cat >> "$DEFAULTS" <<'EOF'
+          WIFI_PASSWORD="$(printf '%s' "$WIFI_PASSWORD_B64" | base64 -d)"
+          uci set system.@system[0].hostname='iStoreOS_AX1800-pro'
+          uci commit system
+          for section in $(uci -q show wireless | sed -n 's/^\\(wireless\\.[^=]*\\)=wifi-iface$/\\1/p'); do
+            uci set "$section.ssid=Openwrt_AX1800-Pro"
+            uci set "$section.encryption=psk2"
+            uci set "$section.key=$WIFI_PASSWORD"
+            uci set "$section.disabled=0"
+          done
+          uci commit wireless
+          usermod -p "$ROOT_HASH" root
+          exit 0
+          EOF
+          chmod 0755 "$DEFAULTS"
+          unset DEFAULT_WIFI_PASSWORD DEFAULT_ROOT_PASSWORD WIFI_B64 ROOT_HASH
+          echo "已生成首次启动默认设置（密码不会写入 Git 仓库）"
+
       - name: 释放磁盘空间 (Free disk space)
         run: |
           echo "::group::清理前"
