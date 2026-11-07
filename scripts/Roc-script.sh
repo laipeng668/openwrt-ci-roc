@@ -358,12 +358,3 @@ exit 0
 EOF
 chmod 755 files/etc/uci-defaults/99-luci-theme-argon
 
-# Hide only the LuCI navigation entries; keep the applications and CLI tools installed.
-for menu_file in \
-  luci-app-netwizard.json \
-  luci-app-package-manager.json; do
-  while IFS= read -r -d '' menu_path; do
-    rm -f "$menu_path"
-    echo "Hidden LuCI menu entry: $menu_path"
-  done < <(find feeds package -type f -path "*/root/usr/share/luci/menu.d/$menu_file" -print0 2>/dev/null || true)
-done
