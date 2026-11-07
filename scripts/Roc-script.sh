@@ -347,6 +347,17 @@ fi
 ./scripts/feeds update -i -a
 ./scripts/feeds install -a
 
+# Make Argon the default global LuCI theme on first boot.
+# Argon is already selected in General.config; this only sets LuCI's theme path.
+mkdir -p files/etc/uci-defaults
+cat > files/etc/uci-defaults/99-luci-theme-argon <<'EOF'
+#!/bin/sh
+uci -q set luci.main.mediaurlbase='/luci-static/argon'
+uci -q commit luci
+exit 0
+EOF
+chmod 755 files/etc/uci-defaults/99-luci-theme-argon
+
 # Hide only the LuCI navigation entries; keep the applications and CLI tools installed.
 for menu_file in \
   luci-app-netwizard.json \
