@@ -336,5 +336,23 @@ fi
 # 清理 PassWall 的 chnlist 规则文件
 # echo "baidu.com"  > package/luci-app-passwall/luci-app-passwall/root/usr/share/passwall/rules/chnlist
 
+# Install the official LinkEase iStore feed for OpenWrt 25.12 (APK).
+# Keep this idempotent because the customization script may be rerun.
+if ! grep -qE '^[[:space:]]*src-git[[:space:]]+istore[[:space:]]' feeds.conf.default; then
+  printf '%s\n' 'src-git istore https://github.com/linkease/istore;main' >> feeds.conf.default
+fi
+./scripts/feeds update istore
+./scripts/feeds install -d y -p istore luci-app-store
+
 ./scripts/feeds update -i -a
 ./scripts/feeds install -a
+
+# Hide only the LuCI navigation entries; keep the applications and CLI tools installed.
+for menu_file in \
+  luci-app-netwizard.json \
+  luci-app-package-manager.json; do
+  while IFS= read -r -d '' menu_path; do
+    rm -f "$menu_path"
+    echo "Hidden LuCI menu entry: $menu_path"
+  done < <(find feeds package -type f -path "*/root/usr/share/luci/menu.d/$menu_file" -print0 2>/dev/null || true)
+done
