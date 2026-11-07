@@ -86,7 +86,7 @@ jobs:
           WIFI_PASSWORD="$(printf '%s' "$WIFI_PASSWORD_B64" | base64 -d)"
           uci set system.@system[0].hostname='iStoreOS_AX1800-pro'
           uci commit system
-          for section in $(uci -q show wireless | sed -n 's/^\\(wireless\\.[^=]*\\)=wifi-iface$/\\1/p'); do
+          for section in $(uci -q show wireless | sed -n 's/^\(wireless\.[^=]*\)=wifi-iface$/\1/p'); do
             uci set "$section.ssid=Openwrt_AX1800-Pro"
             uci set "$section.encryption=psk2"
             uci set "$section.key=$WIFI_PASSWORD"
